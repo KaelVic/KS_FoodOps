@@ -23,7 +23,14 @@ OWNER_DATABASE_URL = os.environ.get(
 if "pytest" in sys.modules or os.environ.get("PYTEST_CURRENT_TEST"):
     engine = create_async_engine(DATABASE_URL, echo=False, poolclass=NullPool)
 else:
-    engine = create_async_engine(DATABASE_URL, echo=False)
+    engine = create_async_engine(
+        DATABASE_URL, 
+        echo=False,
+        pool_pre_ping=True,
+        pool_recycle=300,
+        pool_size=10,
+        max_overflow=20
+    )
 
 async_session_maker = async_sessionmaker(
     engine, class_=AsyncSession, expire_on_commit=False
