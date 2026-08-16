@@ -24,9 +24,8 @@ async def lifespan(app: FastAPI):
     yield
     # Shutdown logic
 
-is_production = os.environ.get("ENVIRONMENT") == "production"
-docs_url = None if is_production else "/docs"
-redoc_url = None if is_production else "/redoc"
+docs_url = "/docs"
+redoc_url = "/redoc"
 
 app = FastAPI(
     title="KS FoodOps API",
