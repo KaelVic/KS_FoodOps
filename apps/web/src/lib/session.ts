@@ -31,11 +31,11 @@ export async function getActiveTenantId(): Promise<string | null> {
 
 export async function setSessionCookies(token: string, tenantId?: string) {
   const cookieStore = await cookies()
-  const isProd = process.env.NODE_ENV === "production"
+  const isSecure = process.env.COOKIE_SECURE === "true"
   
   cookieStore.set("session_token", token, {
     httpOnly: true,
-    secure: isProd,
+    secure: isSecure,
     sameSite: "lax",
     path: "/",
     maxAge: 8 * 60 * 60 // 8 hours
@@ -44,7 +44,7 @@ export async function setSessionCookies(token: string, tenantId?: string) {
   if (tenantId) {
     cookieStore.set("active_tenant_id", tenantId, {
       httpOnly: true,
-      secure: isProd,
+      secure: isSecure,
       sameSite: "lax",
       path: "/",
       maxAge: 8 * 60 * 60

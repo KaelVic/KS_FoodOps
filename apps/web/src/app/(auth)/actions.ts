@@ -110,10 +110,10 @@ export async function selectTenantAction(formData: FormData) {
   const tenantId = formData.get("tenant_id") as string
   if (tenantId) {
     const cookieStore = await cookies()
-    const isProd = process.env.NODE_ENV === "production"
+    const isSecure = process.env.COOKIE_SECURE === "true"
     cookieStore.set("active_tenant_id", tenantId, {
       httpOnly: true,
-      secure: isProd,
+      secure: isSecure,
       sameSite: "lax",
       path: "/",
       maxAge: 8 * 60 * 60
