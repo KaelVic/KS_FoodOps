@@ -9,6 +9,14 @@ const API_URL =
   process.env.NEXT_PUBLIC_API_URL || 
   (process.env.NODE_ENV === "production" ? "http://api:8000" : "http://localhost:8000")
 
+function isRedirect(err: any): boolean {
+  return Boolean(
+    err?.message === "NEXT_REDIRECT" ||
+    err?.digest?.startsWith("NEXT_REDIRECT") ||
+    err?.digest?.includes("NEXT_REDIRECT")
+  )
+}
+
 export async function loginAction(prevState: any, formData: FormData) {
   const email = formData.get("email") as string
   const password = formData.get("password") as string
@@ -48,9 +56,9 @@ export async function loginAction(prevState: any, formData: FormData) {
       redirect("/select-tenant")
     }
   } catch (err: any) {
-    // If it's a redirect, we must throw it so Next.js can handle it
-    if (err.message === "NEXT_REDIRECT") throw err;
-    return { error: "Falha ao conectar no servidor" }
+    if (isRedirect(err)) throw err;
+    console.error("loginAction error:", err);
+    return { error: err?.message ? `Erro ao conectar: ${err.message}` : "Falha ao conectar no servidor" }
   }
 }
 
@@ -92,8 +100,9 @@ export async function registerAction(prevState: any, formData: FormData) {
       redirect("/onboarding")
     }
   } catch (err: any) {
-    if (err.message === "NEXT_REDIRECT") throw err;
-    return { error: "Falha ao conectar no servidor" }
+    if (isRedirect(err)) throw err;
+    console.error("registerAction error:", err);
+    return { error: err?.message ? `Erro ao conectar: ${err.message}` : "Falha ao conectar no servidor" }
   }
 }
 
