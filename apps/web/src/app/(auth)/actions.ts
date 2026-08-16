@@ -4,7 +4,10 @@ import { redirect } from "next/navigation"
 import { cookies } from "next/headers"
 import { clearSession, setSessionCookies } from "@/lib/session"
 
-const API_URL = process.env.API_URL ?? "http://localhost:8000"
+const API_URL = 
+  process.env.API_URL || 
+  process.env.NEXT_PUBLIC_API_URL || 
+  (process.env.NODE_ENV === "production" ? "http://api:8000" : "http://localhost:8000")
 
 export async function loginAction(prevState: any, formData: FormData) {
   const email = formData.get("email") as string

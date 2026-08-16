@@ -12,7 +12,10 @@ import {
   CatalogSkusAndUoms,
 } from "@/types/recipes"
 
-const API_URL = process.env.API_URL ?? "http://localhost:8000"
+const API_URL = 
+  process.env.API_URL || 
+  process.env.NEXT_PUBLIC_API_URL || 
+  (process.env.NODE_ENV === "production" ? "http://api:8000" : "http://localhost:8000")
 
 async function getAuthHeaders(): Promise<Headers> {
   const cookieStore = await cookies()
