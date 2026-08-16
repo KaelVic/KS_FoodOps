@@ -72,7 +72,7 @@ def upgrade() -> None:
     """)
 
     # Grant permissions to the application role
-    op.execute("GRANT CONNECT ON DATABASE ks_foodops TO ksfoodops_app;")
+    op.execute("DO $$ BEGIN EXECUTE format('GRANT CONNECT ON DATABASE %I TO ksfoodops_app', current_database()); END $$;")
     op.execute("GRANT USAGE ON SCHEMA public TO ksfoodops_app;")
     op.execute("GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO ksfoodops_app;")
     
