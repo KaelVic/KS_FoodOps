@@ -1,0 +1,100 @@
+name: KS FoodOps CI Pipeline
+
+on:
+  push:
+    branches: [ "main", "develop" ]
+  pull_request:
+    branches: [ "main", "develop" ]
+
+jobs:
+  backend-checks:
+    name: Backend Lint & Tests
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: ks_owner
+          POSTGRES_PASSWORD: ks_password
+          POSTGRES_DB: ks_foodops_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install -r apps/api/requirements.txt
+          pip install -r apps/worker/requirements.txt
+          
+      - name: Setup Database
+        env:
+          DATABASE_URL: postgresql+asyncpg://ks_owner:ks_password@localhost:5432/ks_foodops_test
+        run: |
+          alembic upgrade head
+
+      - name: Run Tests
+        env:
+          ENVIRONMENT: test
+          DATABASE_URL: postgresql+asyncpg://ks_owner:ks_password@localhost:5432/ks_foodops_test
+          OWNER_DATABASE_URL: postgresql+asyncpg://ks_owner:ks_password@localhost:5432/ks_foodops_test
+          CELERY_BROKER_URL: redis://localhost:6379/0
+          JWT_SECRET: test_secret
+        run: |
+          pytest tests/ -v --cov=modules --cov=apps
+
+  frontend-checks:
+    name: Frontend Build & E2E Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install Dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Lint
+        working-directory: apps/web
+        run: npm run lint
+        
+      - name: Build Next.js
+        working-directory: apps/web
+        run: npm run build
+
+      - name: Install Playwright Browsers
+        working-directory: apps/web
+        run: npx playwright install --with-deps
+
+      - name: Run Playwright Tests
+        working-directory: apps/web
+        run: npx playwright test
+        
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report/
+          retention-days: 14
