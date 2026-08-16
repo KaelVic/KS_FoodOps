@@ -72,6 +72,7 @@ class TenantService:
     @staticmethod
     async def create_tenant_onboarding(db: AsyncSession, user_id: str, restaurant_name: str) -> dict:
         from packages.tenant.models import Tenant, BusinessUnit, Location, TenantMembership
+        from sqlalchemy import text
         import uuid
         
         # 1. Create Tenant
@@ -79,6 +80,12 @@ class TenantService:
         db.add(tenant)
         await db.flush()
         
+        # Set RLS session variable so tenant-scoped inserts are permitted by PostgreSQL RLS
+        await db.execute(
+            text("SELECT set_config('app.current_tenant_id', :tid, false)"),
+            {"tid": str(tenant.id)}
+        )
+
         # 2. Create Default Business Unit
         bu = BusinessUnit(tenant_id=tenant.id, name="Unidade Principal")
         db.add(bu)

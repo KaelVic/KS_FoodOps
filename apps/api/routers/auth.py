@@ -53,52 +53,62 @@ class MeResponse(BaseModel):
 @router.post("/register", response_model=LoginResponse, status_code=status.HTTP_201_CREATED)
 @limiter.limit("5/minute")
 async def register(request: Request, data: RegisterRequest, db: AsyncSession = Depends(get_db)):
-    # 1. Check if email exists
-    result = await db.execute(select(AppUser).where(AppUser.email == data.email))
-    if result.scalar_one_or_none():
+    try:
+        # 1. Check if email exists
+        result = await db.execute(select(AppUser).where(AppUser.email == data.email))
+        if result.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Este email já está cadastrado."
+            )
+
+        # 2. Hash password & create user
+        hashed = hash_password(data.password)
+        user = AppUser(
+            email=data.email,
+            password_hash=hashed,
+            full_name=data.full_name,
+            is_active=True
+        )
+        db.add(user)
+        await db.flush()
+
+        # 3. Create Tenant and default admin membership
+        onboard_res = await TenantService.create_tenant_onboarding(
+            db, str(user.id), data.restaurant_name or "Meu Restaurante"
+        )
+        await db.commit()
+
+        # 4. Generate JWT
+        secret = os.environ.get("JWT_SECRET", "dummy_secret_for_development_32_bytes_long_min!")
+        algorithm = os.environ.get("JWT_ALGORITHM", "HS256")
+        exp = datetime.now(timezone.utc) + timedelta(hours=8)
+        payload = {
+            "sub": str(user.id),
+            "email": user.email,
+            "exp": exp
+        }
+        access_token = jwt.encode(payload, secret, algorithm=algorithm)
+
+        tenant_responses = [
+            TenantResponse(id=onboard_res["tenant_id"], name=onboard_res["tenant_name"], role="admin")
+        ]
+
+        return LoginResponse(
+            access_token=access_token,
+            token_type="bearer",
+            user=UserResponse(id=user.id, email=user.email, full_name=user.full_name),
+            tenants=tenant_responses
+        )
+    except HTTPException:
+        await db.rollback()
+        raise
+    except Exception as e:
+        await db.rollback()
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Este email já está cadastrado."
+            detail=f"Erro ao registrar: {str(e)}"
         )
-
-    # 2. Hash password & create user
-    hashed = hash_password(data.password)
-    user = AppUser(
-        email=data.email,
-        password_hash=hashed,
-        full_name=data.full_name,
-        is_active=True
-    )
-    db.add(user)
-    await db.flush()
-
-    # 3. Create Tenant and default admin membership
-    onboard_res = await TenantService.create_tenant_onboarding(
-        db, str(user.id), data.restaurant_name or "Meu Restaurante"
-    )
-    await db.commit()
-
-    # 4. Generate JWT
-    secret = os.environ.get("JWT_SECRET", "dummy_secret_for_development_32_bytes_long_min!")
-    algorithm = os.environ.get("JWT_ALGORITHM", "HS256")
-    exp = datetime.now(timezone.utc) + timedelta(hours=8)
-    payload = {
-        "sub": str(user.id),
-        "email": user.email,
-        "exp": exp
-    }
-    access_token = jwt.encode(payload, secret, algorithm=algorithm)
-
-    tenant_responses = [
-        TenantResponse(id=onboard_res["tenant_id"], name=onboard_res["tenant_name"], role="admin")
-    ]
-
-    return LoginResponse(
-        access_token=access_token,
-        token_type="bearer",
-        user=UserResponse(id=user.id, email=user.email, full_name=user.full_name),
-        tenants=tenant_responses
-    )
 
 @router.post("/login", response_model=LoginResponse)
 @limiter.limit("5/minute")

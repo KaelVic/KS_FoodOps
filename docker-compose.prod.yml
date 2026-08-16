@@ -28,7 +28,6 @@ services:
       - APP_DATABASE_URL=${DATABASE_URL}
       - OWNER_DATABASE_URL=${OWNER_DATABASE_URL}
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
     depends_on:
       redis:
         condition: service_healthy
@@ -49,7 +48,6 @@ services:
       - OWNER_DATABASE_URL=${OWNER_DATABASE_URL}
       - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
       - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD}@redis:6379/0
-      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
     depends_on:
       redis:
         condition: service_healthy
