@@ -43,23 +43,22 @@ jobs:
           pip install --upgrade pip
           pip install -r apps/api/requirements.txt
           pip install -r apps/worker/requirements.txt
-          pip install pytest-cov httpx pytest-asyncio
+          pip install pytest-cov httpx pytest-asyncio asyncpg
           
       - name: Setup Database Roles & Migrations
         env:
-          PGPASSWORD: ks_password
           PYTHONPATH: .
           DATABASE_URL: postgresql+asyncpg://ks_owner:ks_password@localhost:5432/ks_foodops_test
           OWNER_DATABASE_URL: postgresql+asyncpg://ks_owner:ks_password@localhost:5432/ks_foodops_test
         run: |
-          psql -h localhost -U ks_owner -d ks_foodops_test -c "DO \$\$ BEGIN IF NOT EXISTS (SELECT FROM pg_catalog.pg_roles WHERE rolname = 'ksfoodops_app') THEN CREATE ROLE ksfoodops_app WITH LOGIN PASSWORD 'ks_password'; END IF; END \$\$;"
+          python scripts/ci_setup_db.py
           alembic upgrade head
 
       - name: Run Tests
         env:
           ENVIRONMENT: test
           PYTHONPATH: .
-          DATABASE_URL: postgresql+asyncpg://ks_owner:ks_password@localhost:5432/ks_foodops_test
+          DATABASE_URL: postgresql+asyncpg://ksfoodops_app:ks_password@localhost:5432/ks_foodops_test
           OWNER_DATABASE_URL: postgresql+asyncpg://ks_owner:ks_password@localhost:5432/ks_foodops_test
           POSTGRES_APP_USER: ksfoodops_app
           POSTGRES_OWNER_USER: ks_owner
