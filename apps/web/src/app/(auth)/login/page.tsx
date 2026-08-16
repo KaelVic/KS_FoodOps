@@ -75,7 +75,14 @@ export default function LoginPage() {
           </button>
         </form>
         
-        <div className="mt-8 text-center text-xs text-slate-500">
+        <div className="mt-6 text-center text-sm text-slate-400">
+          Não tem uma conta?{" "}
+          <a href="/register" className="font-medium text-indigo-400 hover:text-indigo-300 underline underline-offset-4">
+            Cadastre-se agora
+          </a>
+        </div>
+
+        <div className="mt-6 text-center text-xs text-slate-500">
           &copy; 2026 KS FoodOps. Todos os direitos reservados.
         </div>
       </div>

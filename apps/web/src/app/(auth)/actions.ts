@@ -51,6 +51,49 @@ export async function loginAction(prevState: any, formData: FormData) {
   }
 }
 
+export async function registerAction(prevState: any, formData: FormData) {
+  const email = formData.get("email") as string
+  const password = formData.get("password") as string
+  const fullName = formData.get("full_name") as string
+  const restaurantName = formData.get("restaurant_name") as string
+
+  if (!email || !password || !fullName) {
+    return { error: "Todos os campos obrigatórios devem ser preenchidos." }
+  }
+
+  try {
+    const response = await fetch(`${API_URL}/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ 
+        email, 
+        password, 
+        full_name: fullName,
+        restaurant_name: restaurantName || "Meu Restaurante"
+      }),
+    })
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}))
+      return { error: errData.detail || "Erro ao criar conta." }
+    }
+
+    const data = await response.json()
+    const tenants = data.tenants || []
+
+    if (tenants.length > 0) {
+      await setSessionCookies(data.access_token, tenants[0].id)
+      redirect("/")
+    } else {
+      await setSessionCookies(data.access_token)
+      redirect("/onboarding")
+    }
+  } catch (err: any) {
+    if (err.message === "NEXT_REDIRECT") throw err;
+    return { error: "Falha ao conectar no servidor" }
+  }
+}
+
 export async function selectTenantAction(formData: FormData) {
   const tenantId = formData.get("tenant_id") as string
   if (tenantId) {
