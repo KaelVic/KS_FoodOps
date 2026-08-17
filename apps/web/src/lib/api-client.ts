@@ -233,6 +233,23 @@ export async function fetchInventorySessions(): Promise<InventorySessionItem[]> 
   }
 }
 
+import { Location } from "@/types/master-data"
+
+export async function fetchLocations(): Promise<Location[]> {
+  try {
+    const response = await fetch(`${API_URL}/locations`, {
+      method: "GET",
+      credentials: "include",
+      cache: "no-store",
+    })
+    if (!response.ok) return []
+    return await response.json()
+  } catch (err) {
+    console.error(err)
+    return []
+  }
+}
+
 export async function createInventorySession(payload: CreateSessionPayload): Promise<InventorySessionItem | null> {
   try {
     const response = await fetch(`${API_URL}/inventory/sessions`, {

@@ -16,6 +16,8 @@ import {
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
+import { logoutAction } from "@/app/(auth)/actions"
+
 const NAV_ITEMS = [
   { name: "Command Center", href: "/dashboard", icon: LayoutDashboard },
   { name: "Inteligência", href: "/intelligence", icon: Lightbulb },
@@ -103,7 +105,7 @@ export function Sidebar({ email }: { email: string }) {
             </div>
           </div>
         </div>
-        <form action="/api/logout" method="POST">
+        <form action={logoutAction}>
           <button type="submit" className="flex w-full items-center justify-center gap-2 rounded-lg border border-slate-800 bg-slate-900/50 px-3 py-2.5 text-sm font-medium text-slate-400 transition-all hover:bg-slate-800 hover:text-white hover:border-slate-700">
             <LogOut className="h-4 w-4" />
             Desconectar

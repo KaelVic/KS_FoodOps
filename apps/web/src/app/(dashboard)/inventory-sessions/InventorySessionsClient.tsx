@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { motion, AnimatePresence } from "framer-motion"
 import { Plus, X, ArrowRight, ClipboardList } from "lucide-react"
@@ -8,7 +8,8 @@ import { Plus, X, ArrowRight, ClipboardList } from "lucide-react"
 import { GlassPanel } from "@/components/ui/glass-panel"
 import { Badge } from "@/components/ui/badge"
 import { InventorySessionItem } from "@/types/inventory-sessions"
-import { createInventorySession } from "@/lib/api-client"
+import { createInventorySession, fetchLocations } from "@/lib/api-client"
+import { Location } from "@/types/master-data"
 
 export default function InventorySessionsClient({ initialSessions }: { initialSessions: InventorySessionItem[] }) {
   const router = useRouter()
@@ -16,12 +17,28 @@ export default function InventorySessionsClient({ initialSessions }: { initialSe
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   
-  // Hardcoded location ID for demo (normally this would come from a dropdown via /locations API)
-  const defaultLocationId = "00000000-0000-0000-0000-000000000002" // Main Stock location in test seed
+  const [locations, setLocations] = useState<Location[]>([])
+  const [selectedLocationId, setSelectedLocationId] = useState<string>("")
+
+  useEffect(() => {
+    if (isCreateOpen) {
+      fetchLocations().then((locs) => {
+        setLocations(locs)
+        if (locs.length > 0) {
+          setSelectedLocationId(locs[0].id)
+        }
+      })
+    }
+  }, [isCreateOpen])
 
   const handleCreateSession = async () => {
+    if (!selectedLocationId) {
+      alert("Selecione um local de estoque.")
+      return
+    }
+
     setIsSubmitting(true)
-    const session = await createInventorySession({ location_id: defaultLocationId })
+    const session = await createInventorySession({ location_id: selectedLocationId })
     setIsSubmitting(false)
     
     if (session) {
@@ -129,6 +146,22 @@ export default function InventorySessionsClient({ initialSessions }: { initialSe
                 <p className="text-sm text-slate-400">
                   Uma sessão de inventário registrará a posição de estoque exata neste momento ("Snapshot"). Todas as discrepâncias contarão contra o estoque esperado gerado até este exato segundo.
                 </p>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-slate-300">Local de Estoque</label>
+                  <select 
+                    value={selectedLocationId}
+                    onChange={(e) => setSelectedLocationId(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-slate-200 outline-none focus:border-[#00f0ff] transition-colors"
+                  >
+                    {locations.length === 0 ? (
+                      <option value="">Carregando locais...</option>
+                    ) : (
+                      locations.map(loc => (
+                        <option key={loc.id} value={loc.id}>{loc.name}</option>
+                      ))
+                    )}
+                  </select>
+                </div>
                 <div className="bg-amber-500/10 border border-amber-500/30 text-amber-500 p-4 rounded-xl text-sm">
                   <strong>Atenção:</strong> Certifique-se de que não haja recebimentos em andamento durante a contagem deste local.
                 </div>

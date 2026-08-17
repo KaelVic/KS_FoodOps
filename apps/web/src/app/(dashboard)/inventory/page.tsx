@@ -1,6 +1,7 @@
 import { fetchInventoryBalances } from "@/lib/api"
 import { GlassPanel } from "@/components/ui/glass-panel"
 import { Badge } from "@/components/ui/badge"
+import Link from "next/link"
 
 export const dynamic = "force-dynamic"
 import {
@@ -58,7 +59,7 @@ export default async function InventoryPage() {
           </h2>
           <p className="text-slate-400 mt-1">Radar de insumos, curva ABC e sessões de contagem física.</p>
         </div>
-        <button className="flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-slate-950 
+        <Link href="/inventory-sessions" className="flex items-center gap-2 px-6 py-3 rounded-xl font-semibold text-slate-950 
           bg-gradient-to-r from-[#00f0ff] to-[#a855f7] 
           hover:from-[#00d4e0] hover:to-[#9333ea] 
           active:scale-[0.98] transition-all duration-200 
@@ -66,7 +67,7 @@ export default async function InventoryPage() {
           border border-transparent whitespace-nowrap">
           <PackageSearch className="h-4 w-4" />
           Nova Contagem
-        </button>
+        </Link>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
