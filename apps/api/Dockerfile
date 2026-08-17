@@ -6,9 +6,12 @@ COPY apps/api/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY apps/api ./apps/api
+COPY apps/worker ./apps/worker
 COPY modules ./modules
 COPY packages ./packages
 COPY scripts ./scripts
+COPY alembic ./alembic
+COPY alembic.ini .
 
 ENV PYTHONPATH=/app
 
