@@ -61,3 +61,40 @@ class OperationalAlert(Base):
     is_resolved = Column(Boolean, nullable=False, default=False)
     
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class CopilotConversation(Base):
+    __tablename__ = "copilot_conversations"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("app_users.id", ondelete="SET NULL"), nullable=True)
+    title = Column(String(255), nullable=False, default="Nova Conversa com FoodOps Copilot")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class CopilotMessage(Base):
+    __tablename__ = "copilot_messages"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    conversation_id = Column(UUID(as_uuid=True), ForeignKey("copilot_conversations.id", ondelete="CASCADE"), nullable=False, index=True)
+    sender = Column(String(20), nullable=False, default="USER") # USER, COPILOT, SYSTEM
+    content = Column(String, nullable=False)
+    intent = Column(String(50), nullable=False, default="GENERAL") # CMV_AUDIT, STOCK_ALERT, PRIME_COST, MENU_BCG, SALES_SUMMARY, GENERAL
+    data_payload = Column(String, nullable=True) # JSON formatted string
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class ExecutiveBriefing(Base):
+    __tablename__ = "executive_briefings"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    briefing_date = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    channel = Column(String(50), nullable=False, default="DASHBOARD") # DASHBOARD, WHATSAPP, EMAIL, WEBHOOK
+    status = Column(String(50), nullable=False, default="GENERATED") # GENERATED, SENT, FAILED
+    summary_text = Column(String, nullable=False)
+    metrics_payload = Column(String, nullable=True) # JSON formatted string
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+

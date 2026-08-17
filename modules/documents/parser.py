@@ -1,4 +1,4 @@
-import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as ET
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 import re

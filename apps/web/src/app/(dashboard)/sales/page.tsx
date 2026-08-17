@@ -6,20 +6,22 @@ import {
   fetchPOSMappingsServer,
   fetchRecipesServer,
   fetchLossesServer,
-  fetchCatalogSkusAndUomsServer
+  fetchCatalogSkusAndUomsServer,
+  fetchLocationsServer
 } from "@/lib/api-server"
 import SalesClient from "./SalesClient"
 
 export const dynamic = "force-dynamic"
 
 export default async function SalesPage() {
-  const [salesImports, theoReport, mappings, recipes, losses, catalog] = await Promise.all([
+  const [salesImports, theoReport, mappings, recipes, losses, catalog, locations] = await Promise.all([
     fetchSalesImportsServer(),
     fetchTheoreticalVsActualServer(),
     fetchPOSMappingsServer(),
     fetchRecipesServer(),
     fetchLossesServer(),
-    fetchCatalogSkusAndUomsServer()
+    fetchCatalogSkusAndUomsServer(),
+    fetchLocationsServer()
   ])
 
   const totalImports = salesImports.length
@@ -86,6 +88,7 @@ export default async function SalesPage() {
         recipes={recipes}
         initialLosses={losses}
         catalog={catalog}
+        locations={locations}
       />
     </div>
   )

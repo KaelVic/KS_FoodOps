@@ -1,4 +1,4 @@
-import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as ET
 from decimal import Decimal
 from datetime import datetime
 from pydantic import BaseModel

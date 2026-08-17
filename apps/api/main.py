@@ -37,14 +37,21 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# CORS
+# CORS - Strict allowed origins
+allowed_origins_env = os.environ.get(
+    "ALLOWED_ORIGINS", 
+    "http://localhost:3000,http://127.0.0.1:3000,http://localhost:8000,http://127.0.0.1:8000"
+)
+allowed_origins = [origin.strip() for origin in allowed_origins_env.split(",") if origin.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"^https?://.*",
+    allow_origins=allowed_origins,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
 )
+
 
 # Security headers middleware
 @app.middleware("http")
@@ -86,7 +93,7 @@ from apps.api.routers.inventory import router as inventory_router
 from apps.api.routers import (
     auth, documents, pos_integrations, 
     purchasing, inventory, inventory_sessions, recipes, sales, intelligence,
-    catalog, suppliers, locations, team, notifications, onboarding, reports
+    catalog, suppliers, locations, team, notifications, onboarding, reports, financial, menu, orders, production, rfq, copilot
 )
 from packages.security.dependencies import get_current_user
 
@@ -96,6 +103,7 @@ app.include_router(inventory_sessions.router, dependencies=[Depends(get_current_
 app.include_router(documents.router, prefix="/documents", tags=["Documents"], dependencies=[Depends(get_current_user)])
 app.include_router(recipes.router, prefix="/recipes", tags=["Recipes"], dependencies=[Depends(get_current_user)])
 app.include_router(purchasing.router, dependencies=[Depends(get_current_user)])
+app.include_router(rfq.router, dependencies=[Depends(get_current_user)])
 app.include_router(sales.router, prefix="/sales", tags=["Sales"], dependencies=[Depends(get_current_user)])
 app.include_router(intelligence.router, prefix="/intelligence", tags=["Intelligence"], dependencies=[Depends(get_current_user)])
 app.include_router(pos_integrations.router, prefix="/integrations", tags=["POS Integrations"])
@@ -106,3 +114,12 @@ app.include_router(team.router, prefix="/team", tags=["Team"], dependencies=[Dep
 app.include_router(notifications.router, prefix="/notifications", tags=["Notifications"], dependencies=[Depends(get_current_user)])
 app.include_router(onboarding.router, prefix="/onboarding", tags=["Onboarding"], dependencies=[Depends(get_current_user)])
 app.include_router(reports.router, prefix="/reports", tags=["Reports"], dependencies=[Depends(get_current_user)])
+app.include_router(financial.router, dependencies=[Depends(get_current_user)])
+app.include_router(menu.router, dependencies=[Depends(get_current_user)])
+app.include_router(orders.router, dependencies=[Depends(get_current_user)])
+app.include_router(production.router, dependencies=[Depends(get_current_user)])
+app.include_router(copilot.router, dependencies=[Depends(get_current_user)])
+
+
+
+

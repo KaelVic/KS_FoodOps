@@ -28,6 +28,9 @@ ADAPTERS = {
     "ifood": IfoodAdapter(),
 }
 
+import hmac
+import os
+
 @router.post("/webhook/{pos_system}", response_model=WebhookResponse, status_code=status.HTTP_202_ACCEPTED)
 @limiter.limit("100/minute")
 async def pos_webhook(
@@ -37,7 +40,7 @@ async def pos_webhook(
 ) -> WebhookResponse:
     """
     Ingest sales data from a POS system via webhook.
-    Requires X-Tenant-ID header.
+    Requires X-Tenant-ID and X-Webhook-Secret headers.
     """
     tenant_id = request.headers.get("X-Tenant-ID")
     if not tenant_id:
@@ -46,12 +49,22 @@ async def pos_webhook(
             detail="Missing X-Tenant-ID header"
         )
         
+    # Validate Webhook Secret / Signature to prevent unauthorized webhook spoofing
+    configured_secret = os.environ.get("POS_WEBHOOK_SECRET", "ksfoodops_pos_webhook_secret_key_default")
+    received_secret = request.headers.get("X-Webhook-Secret")
+    if not received_secret or not hmac.compare_digest(received_secret, configured_secret):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing X-Webhook-Secret"
+        )
+
     pos_system = pos_system.lower()
     if pos_system not in ADAPTERS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unsupported POS system: {pos_system}"
         )
+
         
     try:
         payload = await request.json()

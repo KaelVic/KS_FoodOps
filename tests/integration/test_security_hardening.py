@@ -30,6 +30,11 @@ def test_rate_limiting_health_endpoint():
     
     # At least one should be 429
     assert 429 in status_codes
+    
+    # Reset limiter storage so subsequent tests are not blocked
+    if hasattr(app.state, "limiter") and hasattr(app.state.limiter, "reset"):
+        app.state.limiter.reset()
+
 
 
 def test_upload_nfe_size_limit(monkeypatch):

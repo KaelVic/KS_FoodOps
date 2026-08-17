@@ -3,7 +3,7 @@ from uuid import UUID
 from decimal import Decimal
 
 from fastapi import APIRouter, Depends, Query
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -184,3 +184,119 @@ async def list_losses_endpoint(
         )
         for r in rows
     ]
+
+
+# --- STOCK TRANSFERS ---
+
+class TransferItemPayload(BaseModel):
+    sku_id: UUID
+    quantity_sent: Decimal = Field(..., gt=0)
+
+class CreateStockTransferPayload(BaseModel):
+    origin_location_id: UUID
+    destination_location_id: UUID
+    items: List[TransferItemPayload]
+    notes: Optional[str] = None
+
+class ReceiveTransferItemPayload(BaseModel):
+    item_id: Optional[UUID] = None
+    sku_id: Optional[UUID] = None
+    quantity_received: Decimal = Field(..., gt=0)
+
+class ReceiveStockTransferPayload(BaseModel):
+    items: Optional[List[ReceiveTransferItemPayload]] = None
+
+
+@router.get("/transfers")
+async def list_stock_transfers(
+    status: Optional[str] = Query(None),
+    tenant_id: UUID = Depends(get_tenant_id_from_header),
+    session: AsyncSession = Depends(get_secure_session),
+):
+    service = InventoryService(session)
+    return await service.list_transfers(tenant_id=tenant_id, status=status)
+
+
+@router.post("/transfers", status_code=status.HTTP_201_CREATED)
+async def create_stock_transfer(
+    payload: CreateStockTransferPayload,
+    tenant_id: UUID = Depends(get_tenant_id_from_header),
+    session: AsyncSession = Depends(get_secure_session),
+):
+    service = InventoryService(session)
+    try:
+        transfer = await service.create_transfer(
+            tenant_id=tenant_id,
+            origin_location_id=payload.origin_location_id,
+            destination_location_id=payload.destination_location_id,
+            items=[{"sku_id": i.sku_id, "quantity_sent": i.quantity_sent} for i in payload.items],
+            notes=payload.notes,
+        )
+        res = await service.get_transfer_dict(tenant_id=tenant_id, transfer_id=transfer.id)
+        await session.commit()
+        return res
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.get("/transfers/{transfer_id}")
+async def get_stock_transfer_detail(
+    transfer_id: UUID,
+    tenant_id: UUID = Depends(get_tenant_id_from_header),
+    session: AsyncSession = Depends(get_secure_session),
+):
+    service = InventoryService(session)
+    transfer = await service.get_transfer_dict(tenant_id=tenant_id, transfer_id=transfer_id)
+    if not transfer:
+        raise HTTPException(status_code=404, detail="Transferência não encontrada.")
+    return transfer
+
+
+@router.post("/transfers/{transfer_id}/dispatch")
+async def dispatch_stock_transfer(
+    transfer_id: UUID,
+    tenant_id: UUID = Depends(get_tenant_id_from_header),
+    session: AsyncSession = Depends(get_secure_session),
+):
+    service = InventoryService(session)
+    try:
+        await service.dispatch_transfer(tenant_id=tenant_id, transfer_id=transfer_id)
+        res = await service.get_transfer_dict(tenant_id=tenant_id, transfer_id=transfer_id)
+        await session.commit()
+        return res
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/transfers/{transfer_id}/receive")
+async def receive_stock_transfer(
+    transfer_id: UUID,
+    payload: Optional[ReceiveStockTransferPayload] = None,
+    tenant_id: UUID = Depends(get_tenant_id_from_header),
+    session: AsyncSession = Depends(get_secure_session),
+):
+    service = InventoryService(session)
+    try:
+        items_rec = None
+        if payload and payload.items:
+            items_rec = [
+                {
+                    "item_id": i.item_id,
+                    "sku_id": i.sku_id,
+                    "quantity_received": i.quantity_received,
+                }
+                for i in payload.items
+            ]
+        await service.receive_transfer(
+            tenant_id=tenant_id,
+            transfer_id=transfer_id,
+            items_received=items_rec,
+        )
+        res = await service.get_transfer_dict(tenant_id=tenant_id, transfer_id=transfer_id)
+        await session.commit()
+        return res
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(status_code=400, detail=str(e))

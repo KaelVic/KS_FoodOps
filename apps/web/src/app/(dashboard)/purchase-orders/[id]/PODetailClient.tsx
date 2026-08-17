@@ -163,7 +163,7 @@ export default function PODetailClient({
         <GlassPanel className="p-5 flex flex-col space-y-4">
           <h3 className="text-xl font-bold text-slate-100 flex items-center gap-2 mb-2">
             <Truck className="h-5 w-5 text-[#00f0ff]" />
-            Mock: Lançar Recebimento Físico (Afeta Estoque)
+            Lançar Recebimento Físico (Afeta Estoque)
           </h3>
           <div className="overflow-x-auto border border-slate-700 rounded-xl">
             <table className="w-full text-left text-sm whitespace-nowrap">
@@ -202,7 +202,7 @@ export default function PODetailClient({
         <GlassPanel className="p-5 flex flex-col space-y-4">
           <h3 className="text-xl font-bold text-slate-100 flex items-center gap-2 mb-2">
             <FileCheck className="h-5 w-5 text-[#a855f7]" />
-            Mock: Lançar Fatura Financeira (NFe)
+            Lançar Fatura Financeira (NFe)
           </h3>
           <div className="flex gap-4 mb-2">
             <input 

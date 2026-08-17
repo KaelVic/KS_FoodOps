@@ -20,7 +20,10 @@ async def test_pos_webhook_totvs(async_client: AsyncClient, tenant_id: uuid.UUID
     response = await async_client.post(
         "/integrations/webhook/totvs",
         json=payload,
-        headers={"X-Tenant-ID": str(tenant_id)}
+        headers={
+            "X-Tenant-ID": str(tenant_id),
+            "X-Webhook-Secret": "ksfoodops_pos_webhook_secret_key_default"
+        }
     )
 
     assert response.status_code == 202

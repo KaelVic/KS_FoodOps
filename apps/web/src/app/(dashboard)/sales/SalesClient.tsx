@@ -37,6 +37,7 @@ interface SalesClientProps {
   recipes: RecipeListItem[]
   initialLosses: LossItem[]
   catalog: CatalogSkusAndUoms
+  locations: any[]
 }
 
 export default function SalesClient({
@@ -45,7 +46,8 @@ export default function SalesClient({
   initialMappings,
   recipes,
   initialLosses,
-  catalog
+  catalog,
+  locations
 }: SalesClientProps) {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<"THEO" | "IMPORTS" | "MAPPINGS" | "LOSSES">("THEO")
@@ -57,7 +59,7 @@ export default function SalesClient({
   const [selectedRecipeId, setSelectedRecipeId] = useState("")
 
   // Loss Form State
-  const [lossLocationId, setLossLocationId] = useState("00000000-0000-0000-0000-000000000002")
+  const [lossLocationId, setLossLocationId] = useState(locations.length > 0 ? locations[0].id : "")
   const [lossSkuId, setLossSkuId] = useState(catalog.skus[0]?.id || "")
   const [lossQuantity, setLossQuantity] = useState("1.0")
   const [lossReason, setLossReason] = useState("Validade Expirada / Descarte")
@@ -144,8 +146,8 @@ export default function SalesClient({
 
   const handleRegisterLoss = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!lossSkuId || parseFloat(lossQuantity) <= 0) {
-      alert("Selecione um SKU e informe uma quantidade válida.")
+    if (!lossSkuId || !lossLocationId || parseFloat(lossQuantity) <= 0) {
+      alert("Selecione um Local, um SKU e informe uma quantidade válida.")
       return
     }
 
@@ -462,6 +464,25 @@ export default function SalesClient({
             </p>
 
             <form onSubmit={handleRegisterLoss} className="space-y-3">
+              <div>
+                <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-1">
+                  Local de Estoque
+                </label>
+                <select
+                  value={lossLocationId}
+                  onChange={(e) => setLossLocationId(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-100 focus:border-rose-400 outline-none"
+                  required
+                >
+                  <option value="">Selecione o local...</option>
+                  {locations.map((loc) => (
+                    <option key={loc.id} value={loc.id}>
+                      {loc.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               <div>
                 <label className="text-xs font-semibold text-slate-400 uppercase tracking-wider block mb-1">
                   Insumo (SKU)

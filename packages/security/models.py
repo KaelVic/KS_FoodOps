@@ -17,5 +17,8 @@ class AppUser(Base):
     password_hash = Column(String(255), nullable=False)
     full_name = Column(String(255), nullable=True)
     is_active = Column(Boolean, default=True)
+    is_2fa_enabled = Column(Boolean, default=False, nullable=False, server_default='false')
+    totp_secret = Column(String(64), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+

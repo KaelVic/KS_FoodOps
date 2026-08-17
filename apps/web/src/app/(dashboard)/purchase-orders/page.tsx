@@ -1,12 +1,17 @@
 import { GlassPanel } from "@/components/ui/glass-panel"
 import { ShoppingCart, Truck, AlertTriangle, FileCheck } from "lucide-react"
-import { fetchPurchaseOrdersServer } from "@/lib/api-server"
+import { fetchPurchaseOrdersServer, fetchLocationsServer, fetchSuppliersServer, fetchCatalogSkusAndUomsServer } from "@/lib/api-server"
 import PurchaseOrdersClient from "./PurchaseOrdersClient"
 
 export const dynamic = "force-dynamic"
 
 export default async function PurchaseOrdersPage() {
-  const orders = await fetchPurchaseOrdersServer()
+  const [orders, locations, suppliers, catalog] = await Promise.all([
+    fetchPurchaseOrdersServer(),
+    fetchLocationsServer(),
+    fetchSuppliersServer(),
+    fetchCatalogSkusAndUomsServer()
+  ])
 
   const draftCount = orders.filter((o: any) => o.status === "DRAFT").length
   const partialCount = orders.filter((o: any) => o.status === "PARTIAL_RECEIPT").length
@@ -61,7 +66,12 @@ export default async function PurchaseOrdersPage() {
         </GlassPanel>
       </div>
 
-      <PurchaseOrdersClient initialOrders={orders} />
+      <PurchaseOrdersClient 
+        initialOrders={orders} 
+        locations={locations}
+        suppliers={suppliers}
+        catalog={catalog}
+      />
     </div>
   )
 }

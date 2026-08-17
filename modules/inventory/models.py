@@ -119,3 +119,44 @@ class AccountingPeriod(Base):
     status = Column(String(50), nullable=False, default='OPEN') # 'OPEN', 'CLOSED'
     closed_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class StockTransfer(Base):
+    __tablename__ = "stock_transfers"
+    __table_args__ = (
+        Index("IX_stock_transfers_tenant_status", "tenant_id", "status"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    transfer_number = Column(String(50), nullable=False) # e.g. "TRF-0001"
+    origin_location_id = Column(UUID(as_uuid=True), ForeignKey("locations.id", ondelete="RESTRICT"), nullable=False, index=True)
+    destination_location_id = Column(UUID(as_uuid=True), ForeignKey("locations.id", ondelete="RESTRICT"), nullable=False, index=True)
+    
+    status = Column(String(50), nullable=False, default="DRAFT") # 'DRAFT', 'IN_TRANSIT', 'RECEIVED', 'CANCELLED'
+    dispatched_at = Column(DateTime(timezone=True), nullable=True)
+    received_at = Column(DateTime(timezone=True), nullable=True)
+    notes = Column(String(500), nullable=True)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class StockTransferItem(Base):
+    __tablename__ = "stock_transfer_items"
+    __table_args__ = (
+        Index("IX_stock_transfer_items_tenant_transfer", "tenant_id", "transfer_id"),
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    transfer_id = Column(UUID(as_uuid=True), ForeignKey("stock_transfers.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    sku_id = Column(UUID(as_uuid=True), ForeignKey("skus.id", ondelete="RESTRICT"), nullable=False, index=True)
+    quantity_sent = Column(Numeric(precision=24, scale=12), nullable=False)
+    quantity_received = Column(Numeric(precision=24, scale=12), nullable=True)
+    unit_cost = Column(Numeric(precision=24, scale=12), nullable=False, default=0)
+    
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+

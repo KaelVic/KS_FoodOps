@@ -43,12 +43,10 @@ services:
       - ENVIRONMENT=${ENVIRONMENT}
       - JWT_SECRET=${JWT_SECRET}
       - JWT_ALGORITHM=${JWT_ALGORITHM}
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_APP_USER}:${POSTGRES_APP_PASSWORD}@db:5432/${POSTGRES_DB}
-      - OWNER_DATABASE_URL=postgresql+asyncpg://${POSTGRES_OWNER_USER}:${POSTGRES_OWNER_PASSWORD}@db:5432/${POSTGRES_DB}
+      - DATABASE_URL=${DATABASE_URL}
+      - OWNER_DATABASE_URL=${OWNER_DATABASE_URL}
       - REDIS_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
     depends_on:
-      db:
-        condition: service_healthy
       redis:
         condition: service_started
     volumes:
@@ -70,13 +68,11 @@ services:
       dockerfile: apps/worker/Dockerfile
     environment:
       - ENVIRONMENT=${ENVIRONMENT}
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_APP_USER}:${POSTGRES_APP_PASSWORD}@db:5432/${POSTGRES_DB}
-      - OWNER_DATABASE_URL=postgresql+asyncpg://${POSTGRES_OWNER_USER}:${POSTGRES_OWNER_PASSWORD}@db:5432/${POSTGRES_DB}
+      - DATABASE_URL=${DATABASE_URL}
+      - OWNER_DATABASE_URL=${OWNER_DATABASE_URL}
       - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
       - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD}@redis:6379/0
     depends_on:
-      db:
-        condition: service_healthy
       redis:
         condition: service_started
     volumes:
@@ -97,15 +93,14 @@ services:
       dockerfile: apps/worker/Dockerfile
     environment:
       - ENVIRONMENT=${ENVIRONMENT}
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_APP_USER}:${POSTGRES_APP_PASSWORD}@db:5432/${POSTGRES_DB}
-      - OWNER_DATABASE_URL=postgresql+asyncpg://${POSTGRES_OWNER_USER}:${POSTGRES_OWNER_PASSWORD}@db:5432/${POSTGRES_DB}
+      - DATABASE_URL=${DATABASE_URL}
+      - OWNER_DATABASE_URL=${OWNER_DATABASE_URL}
       - CELERY_BROKER_URL=redis://:${REDIS_PASSWORD}@redis:6379/0
       - CELERY_RESULT_BACKEND=redis://:${REDIS_PASSWORD}@redis:6379/0
     depends_on:
-      db:
-        condition: service_healthy
       redis:
         condition: service_started
+
     volumes:
       - ./apps/worker:/app/apps/worker
       - ./modules:/app/modules
@@ -128,11 +123,9 @@ services:
     environment:
       - API_URL=http://api:8000
       - NEXT_PUBLIC_API_URL=http://localhost:8000
-    volumes:
-      - ./apps/web:/app
-      - /app/node_modules
     networks:
       - web-net
+
 
 volumes:
   postgres_data:

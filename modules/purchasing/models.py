@@ -86,3 +86,70 @@ class PurchaseReconciliation(Base):
     receipt_line_id = Column(UUID(as_uuid=True), ForeignKey("goods_receipt_lines.id", ondelete="SET NULL"), nullable=True, index=True)
     invoice_line_id = Column(UUID(as_uuid=True), ForeignKey("supplier_invoice_lines.id", ondelete="SET NULL"), nullable=True, index=True)
     status = Column(String(50), nullable=False, default="UNMATCHED") # MATCHED, QUANTITY_DISCREPANCY, PRICE_DISCREPANCY, UNMATCHED
+
+
+class RFQ(Base):
+    __tablename__ = "rfqs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    rfq_number = Column(String(50), nullable=False)
+    title = Column(String(255), nullable=False)
+    location_id = Column(UUID(as_uuid=True), ForeignKey("locations.id", ondelete="SET NULL"), nullable=True)
+    status = Column(String(50), nullable=False, default="DRAFT") # DRAFT, OPEN, EVALUATING, AWARDED, CANCELLED
+    deadline = Column(DateTime(timezone=True), nullable=True)
+    notes = Column(String(500), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class RFQItem(Base):
+    __tablename__ = "rfq_items"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    rfq_id = Column(UUID(as_uuid=True), ForeignKey("rfqs.id", ondelete="CASCADE"), nullable=False, index=True)
+    sku_id = Column(UUID(as_uuid=True), ForeignKey("skus.id", ondelete="RESTRICT"), nullable=False, index=True)
+    quantity = Column(Numeric(precision=24, scale=12), nullable=False)
+    target_price = Column(Numeric(precision=24, scale=12), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class RFQSupplier(Base):
+    __tablename__ = "rfq_suppliers"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    rfq_id = Column(UUID(as_uuid=True), ForeignKey("rfqs.id", ondelete="CASCADE"), nullable=False, index=True)
+    supplier_id = Column(UUID(as_uuid=True), ForeignKey("suppliers.id", ondelete="RESTRICT"), nullable=False, index=True)
+    status = Column(String(50), nullable=False, default="INVITED") # INVITED, SUBMITTED, DECLINED
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class RFQProposal(Base):
+    __tablename__ = "rfq_proposals"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    rfq_id = Column(UUID(as_uuid=True), ForeignKey("rfqs.id", ondelete="CASCADE"), nullable=False, index=True)
+    supplier_id = Column(UUID(as_uuid=True), ForeignKey("suppliers.id", ondelete="RESTRICT"), nullable=False, index=True)
+    freight_cost = Column(Numeric(precision=24, scale=12), nullable=False, default=0)
+    delivery_days = Column(String(50), nullable=True, default="0")
+    payment_terms = Column(String(100), nullable=True)
+    min_order_value = Column(Numeric(precision=24, scale=12), nullable=False, default=0)
+    notes = Column(String(500), nullable=True)
+    submitted_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class RFQProposalItem(Base):
+    __tablename__ = "rfq_proposal_items"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
+    proposal_id = Column(UUID(as_uuid=True), ForeignKey("rfq_proposals.id", ondelete="CASCADE"), nullable=False, index=True)
+    rfq_item_id = Column(UUID(as_uuid=True), ForeignKey("rfq_items.id", ondelete="CASCADE"), nullable=False, index=True)
+    unit_price = Column(Numeric(precision=24, scale=12), nullable=False)
+    available_quantity = Column(Numeric(precision=24, scale=12), nullable=True)
+    brand_or_spec = Column(String(255), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+

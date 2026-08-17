@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional, Dict, Any
 from uuid import UUID
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -7,9 +7,22 @@ from sqlalchemy.orm import selectinload
 from sqlalchemy import update, insert, and_, func
 from decimal import Decimal
 
-from modules.inventory.models import StockMovement, StockLedgerEntry, StockBalanceProjection, InventorySession, InventorySessionLocation, InventoryCountLine, InventoryCloseResult, LossRecord, AccountingPeriod
+from modules.inventory.models import (
+    StockMovement,
+    StockLedgerEntry,
+    StockBalanceProjection,
+    InventorySession,
+    InventorySessionLocation,
+    InventoryCountLine,
+    InventoryCloseResult,
+    LossRecord,
+    AccountingPeriod,
+    StockTransfer,
+    StockTransferItem,
+)
 from modules.purchasing.models import GoodsReceipt, GoodsReceiptLine
 from modules.catalog.models import SKUConversionVersion, SKU
+from packages.tenant.models import Location
 from modules.suppliers.models import SupplierSKU
 from sqlalchemy.exc import IntegrityError
 class InventoryService:
@@ -413,3 +426,317 @@ class InventoryService:
         period.status = 'CLOSED'
         period.closed_at = datetime.now(timezone.utc)
         return period
+
+    async def list_transfers(
+        self,
+        tenant_id: UUID,
+        status: str = None,
+    ) -> List[dict]:
+        stmt = select(StockTransfer).where(StockTransfer.tenant_id == tenant_id)
+        if status:
+            stmt = stmt.where(StockTransfer.status == status)
+        stmt = stmt.order_by(StockTransfer.created_at.desc())
+        transfers = (await self.session.execute(stmt)).scalars().all()
+
+        result = []
+        for t in transfers:
+            orig = (await self.session.execute(select(Location).where(Location.id == t.origin_location_id))).scalar_one_or_none()
+            dest = (await self.session.execute(select(Location).where(Location.id == t.destination_location_id))).scalar_one_or_none()
+            
+            # Count items
+            item_count_stmt = select(func.count(StockTransferItem.id)).where(
+                StockTransferItem.transfer_id == t.id,
+                StockTransferItem.tenant_id == tenant_id,
+            )
+            item_count = (await self.session.execute(item_count_stmt)).scalar() or 0
+
+            result.append({
+                "id": str(t.id),
+                "tenant_id": str(t.tenant_id),
+                "transfer_number": t.transfer_number,
+                "origin_location_id": str(t.origin_location_id),
+                "origin_location_name": orig.name if orig else "Origem",
+                "destination_location_id": str(t.destination_location_id),
+                "destination_location_name": dest.name if dest else "Destino",
+                "status": t.status,
+                "items_count": item_count,
+                "dispatched_at": t.dispatched_at.isoformat() if t.dispatched_at else None,
+                "received_at": t.received_at.isoformat() if t.received_at else None,
+                "notes": t.notes,
+                "created_at": t.created_at.isoformat() if t.created_at else None,
+            })
+        return result
+
+    async def get_transfer_dict(
+        self,
+        tenant_id: UUID,
+        transfer_id: UUID,
+    ) -> Optional[dict]:
+        stmt = select(StockTransfer).where(
+            StockTransfer.id == transfer_id,
+            StockTransfer.tenant_id == tenant_id,
+        )
+        t = (await self.session.execute(stmt)).scalar_one_or_none()
+        if not t:
+            return None
+
+        orig = (await self.session.execute(select(Location).where(Location.id == t.origin_location_id))).scalar_one_or_none()
+        dest = (await self.session.execute(select(Location).where(Location.id == t.destination_location_id))).scalar_one_or_none()
+
+        items_stmt = select(StockTransferItem).where(
+            StockTransferItem.transfer_id == t.id,
+            StockTransferItem.tenant_id == tenant_id,
+        )
+        items = (await self.session.execute(items_stmt)).scalars().all()
+        items_list = []
+        for it in items:
+            sku = (await self.session.execute(select(SKU).where(SKU.id == it.sku_id))).scalar_one_or_none()
+            items_list.append({
+                "id": str(it.id),
+                "sku_id": str(it.sku_id),
+                "sku_name": sku.name if sku else "SKU",
+                "quantity_sent": float(it.quantity_sent),
+                "quantity_received": float(it.quantity_received) if it.quantity_received is not None else None,
+                "unit_cost": float(it.unit_cost),
+            })
+
+        return {
+            "id": str(t.id),
+            "tenant_id": str(t.tenant_id),
+            "transfer_number": t.transfer_number,
+            "origin_location_id": str(t.origin_location_id),
+            "origin_location_name": orig.name if orig else "Origem",
+            "destination_location_id": str(t.destination_location_id),
+            "destination_location_name": dest.name if dest else "Destino",
+            "status": t.status,
+            "items": items_list,
+            "dispatched_at": t.dispatched_at.isoformat() if t.dispatched_at else None,
+            "received_at": t.received_at.isoformat() if t.received_at else None,
+            "notes": t.notes,
+            "created_at": t.created_at.isoformat() if t.created_at else None,
+        }
+
+    async def create_transfer(
+        self,
+        tenant_id: UUID,
+        origin_location_id: UUID,
+        destination_location_id: UUID,
+        items: List[dict], # [{"sku_id": UUID, "quantity_sent": Decimal}]
+        notes: Optional[str] = None,
+    ) -> StockTransfer:
+        if origin_location_id == destination_location_id:
+            raise ValueError("O local de origem e destino não podem ser iguais.")
+
+        count_stmt = select(func.count(StockTransfer.id)).where(StockTransfer.tenant_id == tenant_id)
+        current_count = (await self.session.execute(count_stmt)).scalar() or 0
+        transfer_number = f"TRF-{(current_count + 1):04d}"
+
+        transfer = StockTransfer(
+            tenant_id=tenant_id,
+            transfer_number=transfer_number,
+            origin_location_id=origin_location_id,
+            destination_location_id=destination_location_id,
+            status="DRAFT",
+            notes=notes,
+        )
+        self.session.add(transfer)
+        await self.session.flush()
+
+        for it in items:
+            sku_id = it["sku_id"]
+            qty = Decimal(str(it["quantity_sent"]))
+
+            # Get CMP in origin location
+            bal_stmt = select(StockBalanceProjection).where(
+                StockBalanceProjection.sku_id == sku_id,
+                StockBalanceProjection.location_id == origin_location_id,
+                StockBalanceProjection.tenant_id == tenant_id,
+            )
+            bal = (await self.session.execute(bal_stmt)).scalar_one_or_none()
+            unit_cost = (bal.total_value / bal.quantity) if (bal and bal.quantity > 0) else Decimal("0")
+
+            transfer_item = StockTransferItem(
+                tenant_id=tenant_id,
+                transfer_id=transfer.id,
+                sku_id=sku_id,
+                quantity_sent=qty,
+                unit_cost=unit_cost,
+            )
+            self.session.add(transfer_item)
+
+        await self.session.flush()
+        return transfer
+
+    async def dispatch_transfer(
+        self,
+        tenant_id: UUID,
+        transfer_id: UUID,
+    ) -> StockTransfer:
+        stmt = (
+            select(StockTransfer)
+            .where(StockTransfer.id == transfer_id, StockTransfer.tenant_id == tenant_id)
+            .with_for_update()
+        )
+        transfer = (await self.session.execute(stmt)).scalar_one_or_none()
+        if not transfer:
+            raise ValueError(f"Transferência {transfer_id} não encontrada.")
+            
+        if transfer.status != "DRAFT":
+            raise ValueError(f"Transferência {transfer.transfer_number} já foi despachada ou concluída.")
+
+        transfer.status = "IN_TRANSIT"
+        transfer.dispatched_at = datetime.now(timezone.utc)
+        await self.session.flush()
+        return transfer
+
+    async def receive_transfer(
+        self,
+        tenant_id: UUID,
+        transfer_id: UUID,
+        items_received: Optional[List[dict]] = None, # [{"item_id": UUID, "quantity_received": Decimal}]
+    ) -> StockTransfer:
+        """
+        Receives the stock transfer, posting TRANSFER_OUT from origin location
+        and TRANSFER_IN to destination location in immutable stock ledger.
+        """
+        now = datetime.now(timezone.utc)
+        stmt = (
+            select(StockTransfer)
+            .where(StockTransfer.id == transfer_id, StockTransfer.tenant_id == tenant_id)
+            .with_for_update()
+        )
+        transfer = (await self.session.execute(stmt)).scalar_one_or_none()
+        if not transfer:
+            raise ValueError(f"Transferência {transfer_id} não encontrada.")
+            
+        if transfer.status == "RECEIVED":
+            return transfer
+
+        # 1. Fetch Items
+        items_stmt = select(StockTransferItem).where(
+            StockTransferItem.transfer_id == transfer.id,
+            StockTransferItem.tenant_id == tenant_id,
+        )
+        transfer_items = (await self.session.execute(items_stmt)).scalars().all()
+
+        # Map received quantities if provided
+        rec_map = {}
+        if items_received:
+            for r in items_received:
+                rec_map[str(r.get("item_id") or r.get("sku_id"))] = Decimal(str(r["quantity_received"]))
+
+        # 2. Movement TRANSFER_OUT (at origin)
+        out_movement = StockMovement(
+            tenant_id=tenant_id,
+            location_id=transfer.origin_location_id,
+            type="TRANSFER_OUT",
+            status="POSTED",
+            reference_id=transfer.id,
+            reference_type="StockTransfer",
+            posted_at=now,
+        )
+        self.session.add(out_movement)
+
+        # 3. Movement TRANSFER_IN (at destination)
+        in_movement = StockMovement(
+            tenant_id=tenant_id,
+            location_id=transfer.destination_location_id,
+            type="TRANSFER_IN",
+            status="POSTED",
+            reference_id=transfer.id,
+            reference_type="StockTransfer",
+            posted_at=now,
+        )
+        self.session.add(in_movement)
+        await self.session.flush()
+
+        for it in transfer_items:
+            qty_rec = (
+                rec_map.get(str(it.id))
+                or rec_map.get(str(it.sku_id))
+                or it.quantity_sent
+            )
+            it.quantity_received = qty_rec
+
+            # === ORIGIN LOCATION: DEDUCT STOCK ===
+            orig_bal_stmt = (
+                select(StockBalanceProjection)
+                .where(
+                    StockBalanceProjection.sku_id == it.sku_id,
+                    StockBalanceProjection.location_id == transfer.origin_location_id,
+                    StockBalanceProjection.tenant_id == tenant_id,
+                )
+                .with_for_update()
+            )
+            orig_bal = (await self.session.execute(orig_bal_stmt)).scalar_one_or_none()
+            if orig_bal is None:
+                orig_bal = StockBalanceProjection(
+                    tenant_id=tenant_id,
+                    location_id=transfer.origin_location_id,
+                    sku_id=it.sku_id,
+                    quantity=Decimal("0"),
+                    total_value=Decimal("0"),
+                )
+                self.session.add(orig_bal)
+                await self.session.flush()
+                orig_bal = (await self.session.execute(orig_bal_stmt)).scalar_one()
+
+            unit_cost = (orig_bal.total_value / orig_bal.quantity) if orig_bal.quantity > 0 else Decimal("0")
+            it.unit_cost = unit_cost
+            transferred_value = it.quantity_sent * unit_cost
+
+            orig_bal.quantity -= it.quantity_sent
+            orig_bal.total_value -= transferred_value
+
+            out_ledger = StockLedgerEntry(
+                tenant_id=tenant_id,
+                movement_id=out_movement.id,
+                sku_id=it.sku_id,
+                quantity=-it.quantity_sent,
+                unit_cost=unit_cost,
+                balance_after=orig_bal.quantity,
+            )
+            self.session.add(out_ledger)
+
+            # === DESTINATION LOCATION: ADD STOCK ===
+            dest_bal_stmt = (
+                select(StockBalanceProjection)
+                .where(
+                    StockBalanceProjection.sku_id == it.sku_id,
+                    StockBalanceProjection.location_id == transfer.destination_location_id,
+                    StockBalanceProjection.tenant_id == tenant_id,
+                )
+                .with_for_update()
+            )
+            dest_bal = (await self.session.execute(dest_bal_stmt)).scalar_one_or_none()
+            if dest_bal is None:
+                dest_bal = StockBalanceProjection(
+                    tenant_id=tenant_id,
+                    location_id=transfer.destination_location_id,
+                    sku_id=it.sku_id,
+                    quantity=Decimal("0"),
+                    total_value=Decimal("0"),
+                )
+                self.session.add(dest_bal)
+                await self.session.flush()
+                dest_bal = (await self.session.execute(dest_bal_stmt)).scalar_one()
+
+            received_value = qty_rec * unit_cost
+            dest_bal.quantity += qty_rec
+            dest_bal.total_value += received_value
+
+            in_ledger = StockLedgerEntry(
+                tenant_id=tenant_id,
+                movement_id=in_movement.id,
+                sku_id=it.sku_id,
+                quantity=qty_rec,
+                unit_cost=unit_cost,
+                balance_after=dest_bal.quantity,
+            )
+            self.session.add(in_ledger)
+
+        transfer.status = "RECEIVED"
+        transfer.received_at = now
+        await self.session.flush()
+        return transfer
+

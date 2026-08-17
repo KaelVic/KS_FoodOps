@@ -31,7 +31,8 @@ export async function getActiveTenantId(): Promise<string | null> {
 
 export async function setSessionCookies(token: string, tenantId?: string) {
   const cookieStore = await cookies()
-  const isSecure = process.env.COOKIE_SECURE === "true"
+  // Enforce secure cookies in production, fallback to environment variable for local dev
+  const isSecure = process.env.NODE_ENV === "production" || process.env.COOKIE_SECURE === "true"
   
   cookieStore.set("session_token", token, {
     httpOnly: true,
