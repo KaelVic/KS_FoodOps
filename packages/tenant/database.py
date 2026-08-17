@@ -13,12 +13,20 @@ DATABASE_URL = os.environ.get(
     "DATABASE_URL", 
     "postgresql+asyncpg://ksfoodops_app:app_password@localhost:5433/ks_foodops"
 )
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
+elif DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 
 # Owner URL used for migrations
 OWNER_DATABASE_URL = os.environ.get(
     "OWNER_DATABASE_URL",
     "postgresql+asyncpg://ks_owner:ks_password@localhost:5433/ks_foodops"
 )
+if OWNER_DATABASE_URL.startswith("postgres://"):
+    OWNER_DATABASE_URL = OWNER_DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
+elif OWNER_DATABASE_URL.startswith("postgresql://"):
+    OWNER_DATABASE_URL = OWNER_DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 
 if "pytest" in sys.modules or os.environ.get("PYTEST_CURRENT_TEST"):
     engine = create_async_engine(DATABASE_URL, echo=False, poolclass=NullPool)
