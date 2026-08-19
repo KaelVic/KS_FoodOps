@@ -11,81 +11,308 @@ export default function LoginPage() {
   const [state, formAction, isPending] = useActionState(loginAction, initialState)
 
   return (
-    <div className="flex min-h-screen w-full items-center justify-center bg-slate-950 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(120,119,198,0.3),rgba(255,255,255,0))]">
-      <div className="w-full max-w-md overflow-hidden rounded-2xl border border-slate-800 bg-slate-900/50 p-8 shadow-2xl backdrop-blur-xl">
-        <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 shadow-lg">
-            <svg className="h-6 w-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-            </svg>
-          </div>
-          <h1 className="text-3xl font-bold tracking-tight text-white">KS FoodOps</h1>
-          <p className="mt-2 text-sm text-slate-400">Entre na sua conta para continuar</p>
-        </div>
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
-        <form action={formAction} className="space-y-5">
-          {state?.error && (
-            <div className="animate-in fade-in slide-in-from-top-2 rounded-lg bg-red-500/10 p-3 text-sm text-red-400 border border-red-500/20 text-center">
-              {state.error}
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        .login-root {
+          min-height: 100vh;
+          width: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          background-color: #030712;
+          background-image:
+            radial-gradient(ellipse 80% 60% at 50% -10%, rgba(99, 102, 241, 0.35) 0%, transparent 60%),
+            radial-gradient(ellipse 40% 40% at 90% 90%, rgba(168, 85, 247, 0.2) 0%, transparent 50%);
+          font-family: 'Inter', system-ui, sans-serif;
+          padding: 24px;
+        }
+
+        .login-card {
+          width: 100%;
+          max-width: 440px;
+          background: rgba(15, 23, 42, 0.8);
+          border: 1px solid rgba(99, 102, 241, 0.2);
+          border-radius: 24px;
+          padding: 48px 40px;
+          box-shadow:
+            0 0 0 1px rgba(99, 102, 241, 0.05),
+            0 24px 64px rgba(0, 0, 0, 0.6),
+            0 0 80px rgba(99, 102, 241, 0.08);
+          backdrop-filter: blur(24px);
+        }
+
+        .login-header {
+          text-align: center;
+          margin-bottom: 40px;
+        }
+
+        .login-logo {
+          width: 56px;
+          height: 56px;
+          margin: 0 auto 20px;
+          background: linear-gradient(135deg, #6366f1, #a855f7);
+          border-radius: 16px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          box-shadow: 0 8px 32px rgba(99, 102, 241, 0.4);
+        }
+
+        .login-logo svg {
+          width: 28px;
+          height: 28px;
+          color: white;
+        }
+
+        .login-title {
+          font-size: 28px;
+          font-weight: 800;
+          color: #f8fafc;
+          letter-spacing: -0.5px;
+          line-height: 1.2;
+        }
+
+        .login-subtitle {
+          margin-top: 8px;
+          font-size: 14px;
+          color: #64748b;
+          font-weight: 400;
+        }
+
+        .login-form {
+          display: flex;
+          flex-direction: column;
+          gap: 20px;
+        }
+
+        .error-box {
+          background: rgba(239, 68, 68, 0.1);
+          border: 1px solid rgba(239, 68, 68, 0.25);
+          border-radius: 10px;
+          padding: 12px 16px;
+          font-size: 13px;
+          color: #f87171;
+          text-align: center;
+        }
+
+        .field {
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+
+        .field label {
+          font-size: 13px;
+          font-weight: 600;
+          color: #cbd5e1;
+          letter-spacing: 0.02em;
+        }
+
+        .input-wrap {
+          position: relative;
+        }
+
+        .input-icon {
+          position: absolute;
+          left: 14px;
+          top: 50%;
+          transform: translateY(-50%);
+          width: 16px;
+          height: 16px;
+          color: #475569;
+          pointer-events: none;
+        }
+
+        .field input {
+          width: 100%;
+          background: rgba(30, 41, 59, 0.6);
+          border: 1px solid rgba(71, 85, 105, 0.5);
+          border-radius: 10px;
+          padding: 12px 14px 12px 42px;
+          font-size: 14px;
+          color: #f1f5f9;
+          font-family: inherit;
+          outline: none;
+          transition: border-color 0.2s, box-shadow 0.2s;
+        }
+
+        .field input::placeholder {
+          color: #334155;
+        }
+
+        .field input:focus {
+          border-color: #6366f1;
+          box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+        }
+
+        .submit-btn {
+          width: 100%;
+          padding: 14px;
+          background: linear-gradient(135deg, #6366f1, #a855f7);
+          border: none;
+          border-radius: 12px;
+          font-size: 15px;
+          font-weight: 700;
+          color: white;
+          font-family: inherit;
+          cursor: pointer;
+          letter-spacing: 0.01em;
+          box-shadow: 0 4px 24px rgba(99, 102, 241, 0.35);
+          transition: all 0.2s;
+          margin-top: 4px;
+        }
+
+        .submit-btn:hover:not(:disabled) {
+          transform: translateY(-1px);
+          box-shadow: 0 8px 32px rgba(99, 102, 241, 0.5);
+        }
+
+        .submit-btn:active:not(:disabled) {
+          transform: translateY(0px);
+        }
+
+        .submit-btn:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+
+        .spinner {
+          display: inline-block;
+          width: 14px;
+          height: 14px;
+          border: 2px solid rgba(255,255,255,0.3);
+          border-top-color: white;
+          border-radius: 50%;
+          animation: spin 0.7s linear infinite;
+          margin-right: 8px;
+          vertical-align: middle;
+        }
+
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+
+        .login-footer {
+          margin-top: 28px;
+          text-align: center;
+          font-size: 13px;
+          color: #475569;
+        }
+
+        .login-footer a {
+          color: #818cf8;
+          text-decoration: none;
+          font-weight: 600;
+        }
+
+        .login-footer a:hover {
+          color: #a5b4fc;
+          text-decoration: underline;
+        }
+
+        .login-copy {
+          margin-top: 16px;
+          text-align: center;
+          font-size: 11px;
+          color: #334155;
+        }
+
+        .divider {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          margin: 4px 0;
+        }
+
+        .divider-line {
+          flex: 1;
+          height: 1px;
+          background: rgba(51, 65, 85, 0.6);
+        }
+
+        .divider-text {
+          font-size: 11px;
+          color: #475569;
+          font-weight: 500;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+        }
+      `}</style>
+
+      <div className="login-root">
+        <div className="login-card">
+          <div className="login-header">
+            <div className="login-logo">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M13 10V3L4 14h7v7l9-11h-7z" fill="currentColor" stroke="none"/>
+              </svg>
             </div>
-          )}
+            <h1 className="login-title">KS FoodOps</h1>
+            <p className="login-subtitle">Entre na sua conta para continuar</p>
+          </div>
 
-          <div>
-            <label className="text-sm font-medium text-slate-300">Email</label>
-            <div className="relative mt-1">
-              <input 
-                type="email" 
-                name="email" 
-                required 
-                className="block w-full rounded-lg border border-slate-700 bg-slate-800/50 py-2.5 pl-10 pr-3 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-colors" 
-                placeholder="admin@ksfoodops.local"
-              />
-              <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                <svg className="h-5 w-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+          <form action={formAction} className="login-form">
+            {state?.error && (
+              <div className="error-box">{state.error}</div>
+            )}
+
+            <div className="field">
+              <label htmlFor="email">Email</label>
+              <div className="input-wrap">
+                <svg className="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
                 </svg>
+                <input
+                  id="email"
+                  type="email"
+                  name="email"
+                  required
+                  placeholder="seu@email.com"
+                  autoComplete="email"
+                />
               </div>
             </div>
-          </div>
 
-          <div>
-            <label className="text-sm font-medium text-slate-300">Senha</label>
-            <div className="relative mt-1">
-              <input 
-                type="password" 
-                name="password" 
-                required 
-                className="block w-full rounded-lg border border-slate-700 bg-slate-800/50 py-2.5 pl-10 pr-3 text-sm text-white placeholder-slate-500 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 transition-colors" 
-                placeholder="••••••••"
-              />
-              <div className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
-                <svg className="h-5 w-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            <div className="field">
+              <label htmlFor="password">Senha</label>
+              <div className="input-wrap">
+                <svg className="input-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                 </svg>
+                <input
+                  id="password"
+                  type="password"
+                  name="password"
+                  required
+                  placeholder="••••••••"
+                  autoComplete="current-password"
+                />
               </div>
             </div>
+
+            <button type="submit" disabled={isPending} className="submit-btn">
+              {isPending ? (
+                <><span className="spinner" />Entrando...</>
+              ) : (
+                "Entrar"
+              )}
+            </button>
+          </form>
+
+          <div className="login-footer">
+            Não tem uma conta?{" "}
+            <a href="/register">Cadastre-se agora</a>
           </div>
 
-          <button 
-            type="submit" 
-            disabled={isPending}
-            className="w-full rounded-lg bg-gradient-to-r from-indigo-500 to-purple-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/25 transition-all hover:from-indigo-400 hover:to-purple-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-slate-900 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isPending ? "Entrando..." : "Entrar"}
-          </button>
-        </form>
-        
-        <div className="mt-6 text-center text-sm text-slate-400">
-          Não tem uma conta?{" "}
-          <a href="/register" className="font-medium text-indigo-400 hover:text-indigo-300 underline underline-offset-4">
-            Cadastre-se agora
-          </a>
-        </div>
-
-        <div className="mt-6 text-center text-xs text-slate-500">
-          &copy; 2026 KS FoodOps. Todos os direitos reservados.
+          <div className="login-copy">
+            © 2026 KS FoodOps · Todos os direitos reservados
+          </div>
         </div>
       </div>
-    </div>
+    </>
   )
 }
