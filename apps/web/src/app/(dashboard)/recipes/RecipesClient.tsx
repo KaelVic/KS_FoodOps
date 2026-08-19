@@ -3,7 +3,7 @@
 import { useState, useMemo } from "react"
 import { useRouter } from "next/navigation"
 import { motion, AnimatePresence } from "framer-motion"
-import { Plus, Search, Eye, ChefHat, Package, X, Trash2, ArrowRight } from "lucide-react"
+import { Plus, Search, Eye, ChefHat, Package, X, Trash2, ArrowRight, AlertCircle, CheckCircle2, Warehouse } from "lucide-react"
 
 import { GlassPanel } from "@/components/ui/glass-panel"
 import { Badge } from "@/components/ui/badge"
@@ -22,6 +22,11 @@ import { RecipeKitchenSheet } from "@/components/recipes/RecipeKitchenSheet"
 interface RecipesClientProps {
   initialRecipes: RecipeListItem[]
   initialCatalog: CatalogSkusAndUoms
+}
+
+interface Toast {
+  message: string
+  type: "success" | "error" | "info"
 }
 
 export default function RecipesClient({ initialRecipes, initialCatalog }: RecipesClientProps) {
@@ -49,6 +54,12 @@ export default function RecipesClient({ initialRecipes, initialCatalog }: Recipe
   const [formPortionUom, setFormPortionUom] = useState<string>("")
   
   const [ingredients, setIngredients] = useState<RecipeIngredientInput[]>([])
+  const [toast, setToast] = useState<Toast | null>(null)
+
+  const showToast = (message: string, type: Toast["type"] = "info") => {
+    setToast({ message, type })
+    setTimeout(() => setToast(null), 4000)
+  }
 
   const filteredRecipes = useMemo(() => {
     let result = recipes
@@ -92,8 +103,52 @@ export default function RecipesClient({ initialRecipes, initialCatalog }: Recipe
     setIngredients(ingredients.filter((_, i) => i !== index))
   }
 
+  const validateCreateForm = () => {
+    if (!formName.trim()) {
+      showToast("Informe o nome da receita.", "error")
+      return false
+    }
+    if (!formYieldUom) {
+      showToast("Selecione a unidade de rendimento.", "error")
+      return false
+    }
+    if (!formPortionUom) {
+      showToast("Selecione a unidade de porção.", "error")
+      return false
+    }
+    const validIngredients = ingredients.filter(i => i.sku_id && i.uom_id && i.quantity > 0)
+    if (validIngredients.length === 0) {
+      showToast("Adicione ao menos um ingrediente com SKU, unidade e quantidade maior que zero.", "error")
+      return false
+    }
+    // Check for duplicate SKUs
+    const skuIds = validIngredients.map(i => i.sku_id)
+    if (new Set(skuIds).size !== skuIds.length) {
+      showToast("Há SKUs duplicados na lista de ingredientes.", "error")
+      return false
+    }
+    // Validate each ingredient
+    for (const ing of validIngredients) {
+      if (!ing.uom_id) {
+        showToast(`Ingrediente "${ing.sku_id}" sem unidade de medida.`, "error")
+        return false
+      }
+      if (ing.quantity <= 0) {
+        showToast(`Ingrediente "${ing.sku_id}" com quantidade inválida.`, "error")
+        return false
+      }
+      if ((ing.loss_percentage ?? 0) < 0 || (ing.loss_percentage ?? 0) > 100) {
+        showToast(`Ingrediente "${ing.sku_id}" com % de perda inválido (0-100).`, "error")
+        return false
+      }
+    }
+    return true
+  }
+
   const handleCreateSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!validateCreateForm()) return
+
     setIsSubmitting(true)
     try {
       const created = await createRecipe({
@@ -110,6 +165,7 @@ export default function RecipesClient({ initialRecipes, initialCatalog }: Recipe
           ingredients: ingredients.filter(i => i.sku_id && i.uom_id && i.quantity > 0)
         })
         
+        showToast(`Ficha técnica "${formName}" criada e versão publicada!`, "success")
         // Optimistic refresh
         router.refresh()
         setIsCreateOpen(false)
@@ -117,7 +173,7 @@ export default function RecipesClient({ initialRecipes, initialCatalog }: Recipe
       }
     } catch (err) {
       console.error(err)
-      alert("Erro ao criar ficha técnica")
+      showToast("Erro ao criar ficha técnica. Verifique os dados e tente novamente.", "error")
     } finally {
       setIsSubmitting(false)
     }
@@ -673,6 +729,26 @@ export default function RecipesClient({ initialRecipes, initialCatalog }: Recipe
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Toast */}
+      {toast && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 20 }}
+          className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-xl border shadow-xl backdrop-blur-md transition-all"
+          style={{
+            backgroundColor: toast.type === "success" ? "rgba(16, 185, 129, 0.2)" : toast.type === "error" ? "rgba(239, 68, 68, 0.2)" : "rgba(6, 182, 212, 0.2)",
+            borderColor: toast.type === "success" ? "#10b981" : toast.type === "error" ? "#ef4444" : "#06b6d4",
+            color: toast.type === "success" ? "#10b981" : toast.type === "error" ? "#ef4444" : "#06b6d4"
+          }}
+        >
+          {toast.type === "success" && <CheckCircle2 className="h-5 w-5" />}
+          {toast.type === "error" && <AlertCircle className="h-5 w-5" />}
+          {toast.type === "info" && <Warehouse className="h-5 w-5" />}
+          <span className="font-medium text-sm">{toast.message}</span>
+        </motion.div>
+      )}
 
       {/* Kitchen Sheet Print Modal */}
       {showKitchenSheet && detailRecipe && (

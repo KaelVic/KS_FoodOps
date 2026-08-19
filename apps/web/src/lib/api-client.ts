@@ -19,7 +19,7 @@ import {
   SimulatePricingResponse,
 } from "@/types/menu"
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? process.env.API_URL ?? "http://localhost:8000"
+const API_URL = "/api"
 
 export async function fetchExtractions(): Promise<DocumentExtractionItem[]> {
   try {
@@ -254,6 +254,22 @@ export async function fetchLocations(): Promise<Location[]> {
   } catch (err) {
     console.error(err)
     return []
+  }
+}
+
+export async function createLocation(payload: { name: string; business_unit_id?: string }): Promise<Location | null> {
+  try {
+    const response = await fetch(`${API_URL}/locations`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+    if (!response.ok) return null
+    return await response.json()
+  } catch (err) {
+    console.error("Failed to create location:", err)
+    return null
   }
 }
 

@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
+import { motion, AnimatePresence } from "framer-motion"
 import { useRouter } from "next/navigation"
 import { 
   ClipboardList, 
@@ -15,14 +16,23 @@ import {
   Check,
   Clock,
   Sparkles,
-  ArrowRight
+  ArrowRight,
+  AlertCircle,
+  CheckCircle2,
+  Warehouse,
+  X
 } from "lucide-react"
 
 import { GlassPanel } from "@/components/ui/glass-panel"
 import { Badge } from "@/components/ui/badge"
-import { InventorySessionDetail, CloseResultItem } from "@/types/inventory-sessions"
+import { InventorySessionDetail, CloseResultItem, CountLinePayload } from "@/types/inventory-sessions"
 import { CatalogSkusAndUoms } from "@/types/recipes"
 import { addCountLine, closeInventorySession, fetchCloseResults } from "@/lib/api-client"
+
+interface Toast {
+  message: string
+  type: "success" | "error" | "info"
+}
 
 export default function SessionDetailClient({ 
   initialDetail, 
@@ -40,6 +50,12 @@ export default function SessionDetailClient({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [closeResults, setCloseResults] = useState<CloseResultItem[]>([])
   const [showConfirmModal, setShowConfirmModal] = useState(false)
+  const [toast, setToast] = useState<Toast | null>(null)
+
+  const showToast = (message: string, type: Toast["type"] = "info") => {
+    setToast({ message, type })
+    setTimeout(() => setToast(null), 4000)
+  }
 
   // Load initial counts into input map
   useEffect(() => {
@@ -84,12 +100,18 @@ export default function SessionDetailClient({
     if (session.status === "CLOSED") return
     
     const quantity = parseFloat(value)
-    if (isNaN(quantity) || quantity < 0) return
+    if (isNaN(quantity) || quantity < 0) {
+      showToast("Quantidade inválida.", "error")
+      return
+    }
 
     // Save line to API
     const res = await addCountLine(session.id, { sku_id, counted_quantity: quantity })
     if (res) {
       setSavedStatus(prev => ({ ...prev, [sku_id]: true }))
+      showToast("Contagem salva com sucesso", "success")
+    } else {
+      showToast("Erro ao salvar contagem.", "error")
     }
   }
 
@@ -100,9 +122,10 @@ export default function SessionDetailClient({
 
     if (success) {
       setShowConfirmModal(false)
+      showToast("Sessão fechada com sucesso! Redirecionando...", "success")
       router.refresh()
     } else {
-      alert("Erro ao fechar sessão.")
+      showToast("Erro ao fechar sessão.", "error")
     }
   }
 
@@ -112,6 +135,26 @@ export default function SessionDetailClient({
 
   return (
     <div className="space-y-6 pb-24 max-w-7xl mx-auto">
+      {/* Toast */}
+      {toast && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 20 }}
+          className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-xl border shadow-xl backdrop-blur-md transition-all"
+          style={{
+            backgroundColor: toast.type === "success" ? "rgba(16, 185, 129, 0.2)" : toast.type === "error" ? "rgba(239, 68, 68, 0.2)" : "rgba(6, 182, 212, 0.2)",
+            borderColor: toast.type === "success" ? "#10b981" : toast.type === "error" ? "#ef4444" : "#06b6d4",
+            color: toast.type === "success" ? "#10b981" : toast.type === "error" ? "#ef4444" : "#06b6d4"
+          }}
+        >
+          {toast.type === "success" && <CheckCircle2 className="h-5 w-5" />}
+          {toast.type === "error" && <AlertCircle className="h-5 w-5" />}
+          {toast.type === "info" && <Warehouse className="h-5 w-5" />}
+          <span className="font-medium text-sm">{toast.message}</span>
+        </motion.div>
+      )}
+
       {/* Confirm Modal */}
       {showConfirmModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md">

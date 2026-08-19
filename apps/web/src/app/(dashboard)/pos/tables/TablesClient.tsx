@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useState } from "react"
+import { motion, AnimatePresence } from "framer-motion"
 import { GlassPanel } from "@/components/ui/glass-panel"
 import { Badge } from "@/components/ui/badge"
 import { DiningTable, TableStatus, Order, OrderItem } from "@/types/orders"
@@ -31,6 +32,7 @@ import {
   Receipt,
   FilePlus,
   Sparkles,
+  Warehouse,
 } from "lucide-react"
 
 interface TablesClientProps {
@@ -38,6 +40,11 @@ interface TablesClientProps {
   menuItems: MenuItem[]
   bankAccounts: BankAccount[]
   acquirers: PaymentAcquirer[]
+}
+
+interface Toast {
+  message: string
+  type: "success" | "error" | "info"
 }
 
 export function TablesClient({
@@ -70,6 +77,7 @@ export function TablesClient({
     preparation_notes: string
     production_station: string
   }[]>([])
+  const [isOpeningOrder, setIsOpeningOrder] = useState(false)
 
   // Add Item to existing order modal
   const [addItemModalOpen, setAddItemModalOpen] = useState(false)
@@ -78,6 +86,7 @@ export function TablesClient({
   )
   const [itemQuantity, setItemQuantity] = useState<number>(1)
   const [itemNotes, setItemNotes] = useState<string>("")
+  const [isAddingItem, setIsAddingItem] = useState(false)
 
   // Close & Pay Modal
   const [payModalOpen, setPayModalOpen] = useState(false)
@@ -88,12 +97,22 @@ export function TablesClient({
   const [selectedBankAccountId, setSelectedBankAccountId] = useState<string>(
     bankAccounts.length > 0 ? bankAccounts[0].id : ""
   )
+  const [isPaying, setIsPaying] = useState(false)
+  const [isCreatingTable, setIsCreatingTable] = useState(false)
 
   // Create Table Modal
   const [createTableModalOpen, setCreateTableModalOpen] = useState(false)
   const [newTableNumber, setNewTableNumber] = useState("")
   const [newTableCapacity, setNewTableCapacity] = useState(4)
   const [newTableSection, setNewTableSection] = useState("Salão Principal")
+  
+  // Toast
+  const [toast, setToast] = useState<Toast | null>(null)
+
+  const showToast = (message: string, type: Toast["type"] = "info") => {
+    setToast({ message, type })
+    setTimeout(() => setToast(null), 4000)
+  }
 
   const reloadTables = async () => {
     setLoading(true)
@@ -129,6 +148,11 @@ export function TablesClient({
 
   const handleOpenNewOrder = async () => {
     if (!selectedTable) return
+    if (initialOrderItems.length === 0) {
+      showToast("Adicione ao menos um item à comanda.", "error")
+      return
+    }
+    setIsOpeningOrder(true)
     try {
       const payload = {
         channel: "DINE_IN",
@@ -150,9 +174,13 @@ export function TablesClient({
       setInitialOrderItems([])
       setWaiterName("")
       setCustomerName("")
+      showToast("Comanda aberta com sucesso!", "success")
       await reloadTables()
     } catch (err) {
       console.error(err)
+      showToast("Erro ao abrir comanda. Tente novamente.", "error")
+    } finally {
+      setIsOpeningOrder(false)
     }
   }
 
@@ -180,6 +208,11 @@ export function TablesClient({
     if (!activeOrder) return
     const mi = menuItems.find((m) => m.id === selectedMenuItemId)
     if (!mi) return
+    if (itemQuantity <= 0) {
+      showToast("Quantidade deve ser maior que zero.", "error")
+      return
+    }
+    setIsAddingItem(true)
     try {
       const itemsPayload = [
         {
@@ -198,14 +231,19 @@ export function TablesClient({
       setAddItemModalOpen(false)
       setItemNotes("")
       setItemQuantity(1)
+      showToast("Item enviado para o KDS!", "success")
       await reloadTables()
     } catch (err) {
       console.error(err)
+      showToast("Erro ao adicionar item. Tente novamente.", "error")
+    } finally {
+      setIsAddingItem(false)
     }
   }
 
   const handleCloseAndPay = async () => {
     if (!activeOrder) return
+    setIsPaying(true)
     try {
       await closeAndPayOrderClient(activeOrder.id, {
         payment_method: paymentMethod,
@@ -215,14 +253,22 @@ export function TablesClient({
       setPayModalOpen(false)
       setActiveOrder(null)
       setSelectedTable(null)
+      showToast("Conta fechada e pagamento registrado!", "success")
       await reloadTables()
     } catch (err) {
       console.error(err)
+      showToast("Erro ao fechar conta. Tente novamente.", "error")
+    } finally {
+      setIsPaying(false)
     }
   }
 
   const handleCreateTable = async () => {
-    if (!newTableNumber.trim()) return
+    if (!newTableNumber.trim()) {
+      showToast("Informe o número/nome da mesa.", "error")
+      return
+    }
+    setIsCreatingTable(true)
     try {
       await createDiningTableClient({
         table_number: newTableNumber.trim(),
@@ -232,9 +278,13 @@ export function TablesClient({
       })
       setNewTableNumber("")
       setCreateTableModalOpen(false)
+      showToast("Mesa criada com sucesso!", "success")
       await reloadTables()
     } catch (err) {
       console.error(err)
+      showToast("Erro ao criar mesa. Tente novamente.", "error")
+    } finally {
+      setIsCreatingTable(false)
     }
   }
 
@@ -452,6 +502,7 @@ export function TablesClient({
                     <button
                       onClick={async () => {
                         await updateDiningTableStatusClient(selectedTable.id, "RESERVED")
+                        showToast("Mesa marcada como reservada.", "success")
                         await reloadTables()
                         setSelectedTable(null)
                       }}
@@ -462,6 +513,7 @@ export function TablesClient({
                     <button
                       onClick={async () => {
                         await updateDiningTableStatusClient(selectedTable.id, "CLEANING")
+                        showToast("Mesa marcada para higienização.", "success")
                         await reloadTables()
                         setSelectedTable(null)
                       }}
@@ -699,15 +751,17 @@ export function TablesClient({
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
               <button
                 onClick={() => setOpenOrderModal(false)}
-                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 transition-colors"
+                disabled={isOpeningOrder}
+                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 transition-colors disabled:opacity-50"
               >
                 Cancelar
               </button>
               <button
                 onClick={handleOpenNewOrder}
-                className="px-4 py-2 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-bold hover:from-emerald-600 hover:to-teal-600 text-xs transition-colors"
+                disabled={isOpeningOrder || initialOrderItems.length === 0}
+                className="px-4 py-2 rounded-lg bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 font-bold hover:from-emerald-600 hover:to-teal-600 text-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Confirmar Abertura de Mesa
+                {isOpeningOrder ? "Abrindo..." : "Confirmar Abertura de Mesa"}
               </button>
             </div>
           </div>
@@ -771,15 +825,17 @@ export function TablesClient({
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
               <button
                 onClick={() => setAddItemModalOpen(false)}
-                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 transition-colors"
+                disabled={isAddingItem}
+                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 transition-colors disabled:opacity-50"
               >
                 Cancelar
               </button>
               <button
                 onClick={handleAddItemsToActiveOrder}
-                className="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition-colors"
+                disabled={isAddingItem || itemQuantity <= 0}
+                className="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Enviar para o KDS
+                {isAddingItem ? "Enviando..." : "Enviar para o KDS"}
               </button>
             </div>
           </div>
@@ -863,15 +919,17 @@ export function TablesClient({
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
               <button
                 onClick={() => setPayModalOpen(false)}
-                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 transition-colors"
+                disabled={isPaying}
+                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 transition-colors disabled:opacity-50"
               >
                 Cancelar
               </button>
               <button
                 onClick={handleCloseAndPay}
-                className="px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs transition-colors"
+                disabled={isPaying}
+                className="px-4 py-2 rounded-lg bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-bold text-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Confirmar & Liberar Mesa
+                {isPaying ? "Processando..." : "Confirmar & Liberar Mesa"}
               </button>
             </div>
           </div>
@@ -928,19 +986,41 @@ export function TablesClient({
             <div className="flex justify-end gap-2 pt-2 border-t border-slate-800">
               <button
                 onClick={() => setCreateTableModalOpen(false)}
-                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 transition-colors"
+                disabled={isCreatingTable}
+                className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-200 transition-colors disabled:opacity-50"
               >
                 Cancelar
               </button>
               <button
                 onClick={handleCreateTable}
-                className="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition-colors"
+                disabled={isCreatingTable || !newTableNumber.trim()}
+                className="px-4 py-2 rounded-lg bg-amber-500 hover:bg-amber-600 text-slate-950 font-bold text-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Salvar Mesa
+                {isCreatingTable ? "Salvando..." : "Salvar Mesa"}
               </button>
             </div>
           </div>
         </div>
+      )}
+      
+      {/* Toast */}
+      {toast && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 20 }}
+          className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-xl border shadow-xl backdrop-blur-md transition-all"
+          style={{
+            backgroundColor: toast.type === "success" ? "rgba(16, 185, 129, 0.2)" : toast.type === "error" ? "rgba(239, 68, 68, 0.2)" : "rgba(6, 182, 212, 0.2)",
+            borderColor: toast.type === "success" ? "#10b981" : toast.type === "error" ? "#ef4444" : "#06b6d4",
+            color: toast.type === "success" ? "#10b981" : toast.type === "error" ? "#ef4444" : "#06b6d4"
+          }}
+        >
+          {toast.type === "success" && <CheckCircle2 className="h-5 w-5" />}
+          {toast.type === "error" && <AlertCircle className="h-5 w-5" />}
+          {toast.type === "info" && <Warehouse className="h-5 w-5" />}
+          <span className="font-medium text-sm">{toast.message}</span>
+        </motion.div>
       )}
     </div>
   )

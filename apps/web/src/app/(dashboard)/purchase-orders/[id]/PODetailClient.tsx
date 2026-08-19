@@ -2,13 +2,19 @@
 
 import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { ShoppingCart, ArrowLeft, Truck, FileCheck, CheckCircle, AlertTriangle } from "lucide-react"
+import { ShoppingCart, ArrowLeft, Truck, FileCheck, CheckCircle, AlertTriangle, AlertCircle, CheckCircle2, Warehouse } from "lucide-react"
+import { motion, AnimatePresence } from "framer-motion"
 
 import { GlassPanel } from "@/components/ui/glass-panel"
 import { Badge } from "@/components/ui/badge"
 import { PurchaseOrderDetail, EnrichedReconResponse } from "@/types/purchase-orders"
 import { CatalogSkusAndUoms } from "@/types/recipes"
 import { fetchPOReconciliations, receivePurchaseOrder, invoicePurchaseOrder } from "@/lib/api-client"
+
+interface Toast {
+  message: string
+  type: "success" | "error" | "info"
+}
 
 export default function PODetailClient({ 
   initialDetail, 
@@ -22,6 +28,12 @@ export default function PODetailClient({
   const [reconData, setReconData] = useState<EnrichedReconResponse[]>([])
   const [activeTab, setActiveTab] = useState<"ORDER" | "RECEIVE" | "INVOICE" | "RECON">("ORDER")
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [toast, setToast] = useState<Toast | null>(null)
+
+  const showToast = (message: string, type: Toast["type"] = "info") => {
+    setToast({ message, type })
+    setTimeout(() => setToast(null), 4000)
+  }
 
   // Quick inputs for mock receipt/invoice
   const [receiptQty, setReceiptQty] = useState<Record<string, string>>({})
@@ -58,21 +70,30 @@ export default function PODetailClient({
       po_line_id: l.id,
       sku_id: l.sku_id,
       quantity: parseFloat(receiptQty[l.id] || "0"),
-      unit_price: l.unit_price // keeping original price for receipt
+      unit_price: l.unit_price
     })).filter(l => l.quantity > 0)
+
+    if (lines.length === 0) {
+      showToast("Informe ao menos uma quantidade recebida maior que zero.", "error")
+      setIsSubmitting(false)
+      return
+    }
 
     const ok = await receivePurchaseOrder(po.id, { lines })
     setIsSubmitting(false)
     if (ok) {
-      alert("Recebimento Físico registrado com sucesso!")
+      showToast("Recebimento Físico registrado com sucesso!", "success")
       router.refresh()
     } else {
-      alert("Falha no recebimento físico.")
+      showToast("Falha no recebimento físico. Tente novamente.", "error")
     }
   }
 
   const handleInvoice = async () => {
-    if (!invoiceNumber) return alert("Preencha o número da NF")
+    if (!invoiceNumber.trim()) {
+      showToast("Preencha o número da NF.", "error")
+      return
+    }
     setIsSubmitting(true)
     
     let total = 0
@@ -88,6 +109,12 @@ export default function PODetailClient({
       }
     }).filter(l => l.invoiced_quantity > 0)
 
+    if (lines.length === 0) {
+      showToast("Informe ao menos uma quantidade faturada maior que zero.", "error")
+      setIsSubmitting(false)
+      return
+    }
+
     const ok = await invoicePurchaseOrder(po.id, {
       invoice_number: invoiceNumber,
       issue_date: new Date().toISOString(),
@@ -97,10 +124,10 @@ export default function PODetailClient({
     })
     setIsSubmitting(false)
     if (ok) {
-      alert("Fatura Financeira registrada com sucesso!")
+      showToast("Fatura Financeira registrada com sucesso!", "success")
       router.refresh()
     } else {
-      alert("Falha no registro da fatura.")
+      showToast("Falha no registro da fatura. Tente novamente.", "error")
     }
   }
 
@@ -282,6 +309,26 @@ export default function PODetailClient({
             </tbody>
           </table>
         </GlassPanel>
+      )}
+
+      {/* Toast */}
+      {toast && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 20 }}
+          className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-xl border shadow-xl backdrop-blur-md transition-all"
+          style={{
+            backgroundColor: toast.type === "success" ? "rgba(16, 185, 129, 0.2)" : toast.type === "error" ? "rgba(239, 68, 68, 0.2)" : "rgba(6, 182, 212, 0.2)",
+            borderColor: toast.type === "success" ? "#10b981" : toast.type === "error" ? "#ef4444" : "#06b6d4",
+            color: toast.type === "success" ? "#10b981" : toast.type === "error" ? "#ef4444" : "#06b6d4"
+          }}
+        >
+          {toast.type === "success" && <CheckCircle2 className="h-5 w-5" />}
+          {toast.type === "error" && <AlertCircle className="h-5 w-5" />}
+          {toast.type === "info" && <Warehouse className="h-5 w-5" />}
+          <span className="font-medium text-sm">{toast.message}</span>
+        </motion.div>
       )}
     </div>
   )

@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { Plus, ArrowRight, ShoppingCart, X, Trash2 } from "lucide-react"
+import { Plus, ArrowRight, ShoppingCart, X, Trash2, AlertCircle, CheckCircle2, Warehouse } from "lucide-react"
 import { motion, AnimatePresence } from "framer-motion"
 
 import { GlassPanel } from "@/components/ui/glass-panel"
@@ -19,6 +19,11 @@ interface PurchaseOrdersClientProps {
   catalog: CatalogSkusAndUoms
 }
 
+interface Toast {
+  message: string
+  type: "success" | "error" | "info"
+}
+
 export default function PurchaseOrdersClient({ 
   initialOrders,
   locations,
@@ -31,6 +36,12 @@ export default function PurchaseOrdersClient({
   // Modal State
   const [isCreateOpen, setIsCreateOpen] = useState(false)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [toast, setToast] = useState<Toast | null>(null)
+
+  const showToast = (message: string, type: Toast["type"] = "info") => {
+    setToast({ message, type })
+    setTimeout(() => setToast(null), 4000)
+  }
 
   // Form State
   const [locationId, setLocationId] = useState("")
@@ -51,25 +62,50 @@ export default function PurchaseOrdersClient({
     setLines(lines.filter((_, i) => i !== index))
   }
 
+  const validateForm = () => {
+    if (!locationId) {
+      showToast("Selecione um local de estoque.", "error")
+      return false
+    }
+    if (!supplierId) {
+      showToast("Selecione um fornecedor.", "error")
+      return false
+    }
+    const validLines = lines.filter(l => l.sku_id && l.ordered_quantity > 0)
+    if (validLines.length === 0) {
+      showToast("Adicione ao menos um item com SKU e quantidade maior que zero.", "error")
+      return false
+    }
+    // Check for duplicate SKUs
+    const skuIds = validLines.map(l => l.sku_id)
+    if (new Set(skuIds).size !== skuIds.length) {
+      showToast("Há SKUs duplicados na lista. Remova ou ajuste as quantidades.", "error")
+      return false
+    }
+    return true
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!locationId || !supplierId || lines.length === 0) {
-      alert("Preencha todos os campos e adicione ao menos um item.")
-      return
-    }
+    if (!validateForm()) return
 
     setIsSubmitting(true)
     const payload: CreatePOPayload = {
       location_id: locationId,
       supplier_id: supplierId,
       expected_delivery_date: null,
-      lines: lines.filter(l => l.sku_id && l.ordered_quantity > 0)
+      lines: lines.filter(l => l.sku_id && l.ordered_quantity > 0).map(l => ({
+        sku_id: l.sku_id,
+        ordered_quantity: l.ordered_quantity,
+        unit_price: l.unit_price
+      }))
     }
 
     const order = await createPurchaseOrder(payload)
     setIsSubmitting(false)
     
     if (order) {
+      showToast(`Pedido de compra ${order.id.split("-")[0]} criado com sucesso!`, "success")
       setIsCreateOpen(false)
       setLocationId("")
       setSupplierId("")
@@ -77,7 +113,7 @@ export default function PurchaseOrdersClient({
       router.refresh()
       router.push(`/purchase-orders/${order.id}`)
     } else {
-      alert("Erro ao criar PO.")
+      showToast("Erro ao criar PO. Verifique os dados e tente novamente.", "error")
     }
   }
 
@@ -311,7 +347,8 @@ export default function PurchaseOrdersClient({
                   <button
                     type="button"
                     onClick={() => setIsCreateOpen(false)}
-                    className="px-4 py-2 rounded-xl text-slate-300 font-medium hover:bg-slate-800 transition-colors"
+                    disabled={isSubmitting}
+                    className="px-4 py-2 rounded-xl text-slate-300 font-medium hover:bg-slate-800 transition-colors disabled:opacity-50"
                   >
                     Cancelar
                   </button>
@@ -329,6 +366,26 @@ export default function PurchaseOrdersClient({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Toast */}
+      {toast && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 20 }}
+          className="fixed bottom-6 right-6 z-50 flex items-center gap-3 px-4 py-3 rounded-xl border shadow-xl backdrop-blur-md transition-all"
+          style={{
+            backgroundColor: toast.type === "success" ? "rgba(16, 185, 129, 0.2)" : toast.type === "error" ? "rgba(239, 68, 68, 0.2)" : "rgba(6, 182, 212, 0.2)",
+            borderColor: toast.type === "success" ? "#10b981" : toast.type === "error" ? "#ef4444" : "#06b6d4",
+            color: toast.type === "success" ? "#10b981" : toast.type === "error" ? "#ef4444" : "#06b6d4"
+          }}
+        >
+          {toast.type === "success" && <CheckCircle2 className="h-5 w-5" />}
+          {toast.type === "error" && <AlertCircle className="h-5 w-5" />}
+          {toast.type === "info" && <Warehouse className="h-5 w-5" />}
+          <span className="font-medium text-sm">{toast.message}</span>
+        </motion.div>
+      )}
     </div>
   )
 }
