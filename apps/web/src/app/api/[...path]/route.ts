@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server"
 
-const API_BACKEND_URL = process.env.API_URL || process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
+const API_BACKEND_URL = 
+  process.env.API_URL || 
+  process.env.NEXT_PUBLIC_API_URL || 
+  (process.env.NODE_ENV === "production" ? "http://api:8000" : "http://localhost:8000")
 
 async function getAuthHeaders(request: NextRequest): Promise<Headers> {
   const cookieStore = request.cookies
