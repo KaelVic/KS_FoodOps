@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from packages.security.dependencies import get_secure_session, get_tenant_id_from_header
+from packages.security.dependencies import get_secure_session, get_tenant_id_from_header, require_permission
 from modules.menu.service import MenuService
 
 router = APIRouter(prefix="/menu", tags=["Menu & Engineering"])
@@ -96,6 +96,7 @@ class SimulatePricingResponse(BaseModel):
 
 @router.get("/categories", response_model=List[MenuCategoryResponse])
 async def list_menu_categories(
+    _perm: bool = Depends(require_permission("menu.read")),
     session: AsyncSession = Depends(get_secure_session),
     tenant_id: uuid.UUID = Depends(get_tenant_id_from_header)
 ):
@@ -106,13 +107,18 @@ async def list_menu_categories(
 @router.post("/categories", response_model=MenuCategoryResponse, status_code=status.HTTP_201_CREATED)
 async def create_menu_category(
     payload: MenuCategoryCreate,
+    _perm: bool = Depends(require_permission("menu.edit")),
     session: AsyncSession = Depends(get_secure_session),
     tenant_id: uuid.UUID = Depends(get_tenant_id_from_header)
 ):
     """Create a new menu category."""
-    res = await MenuService.create_category(session, tenant_id, payload.model_dump())
-    await session.commit()
-    return res
+    try:
+        res = await MenuService.create_category(session, tenant_id, payload.model_dump())
+        await session.commit()
+        return res
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # --- Menu Item Endpoints ---
@@ -121,6 +127,7 @@ async def create_menu_category(
 async def list_menu_items(
     category_id: Optional[uuid.UUID] = Query(None),
     is_active: Optional[bool] = Query(None),
+    _perm: bool = Depends(require_permission("menu.read")),
     session: AsyncSession = Depends(get_secure_session),
     tenant_id: uuid.UUID = Depends(get_tenant_id_from_header)
 ):
@@ -131,19 +138,25 @@ async def list_menu_items(
 @router.post("/items", response_model=MenuItemResponse, status_code=status.HTTP_201_CREATED)
 async def create_menu_item(
     payload: MenuItemCreate,
+    _perm: bool = Depends(require_permission("menu.edit")),
     session: AsyncSession = Depends(get_secure_session),
     tenant_id: uuid.UUID = Depends(get_tenant_id_from_header)
 ):
     """Create a new menu item linked to a recipe or manual cost."""
-    res = await MenuService.create_menu_item(session, tenant_id, payload.model_dump())
-    await session.commit()
-    return res
+    try:
+        res = await MenuService.create_menu_item(session, tenant_id, payload.model_dump())
+        await session.commit()
+        return res
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.put("/items/{item_id}")
 async def update_menu_item(
     item_id: uuid.UUID,
     payload: MenuItemUpdate,
+    _perm: bool = Depends(require_permission("menu.edit")),
     session: AsyncSession = Depends(get_secure_session),
     tenant_id: uuid.UUID = Depends(get_tenant_id_from_header)
 ):
@@ -155,21 +168,33 @@ async def update_menu_item(
         await session.commit()
         return res
     except ValueError as e:
+        await session.rollback()
         raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.delete("/items/{item_id}")
 async def delete_menu_item(
     item_id: uuid.UUID,
+    _perm: bool = Depends(require_permission("menu.edit")),
     session: AsyncSession = Depends(get_secure_session),
     tenant_id: uuid.UUID = Depends(get_tenant_id_from_header)
 ):
     """Delete a menu item."""
-    success = await MenuService.delete_menu_item(session, tenant_id, item_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Item de cardápio não encontrado.")
-    await session.commit()
-    return {"message": "Item removido com sucesso."}
+    try:
+        success = await MenuService.delete_menu_item(session, tenant_id, item_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Item de cardápio não encontrado.")
+        await session.commit()
+        return {"message": "Item removido com sucesso."}
+    except HTTPException:
+        await session.rollback()
+        raise
+    except Exception as e:
+        await session.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # --- Menu Engineering & Pricing Simulation ---
@@ -179,6 +204,7 @@ async def get_menu_engineering(
     start_date: Optional[datetime] = Query(None),
     end_date: Optional[datetime] = Query(None),
     category_id: Optional[uuid.UUID] = Query(None),
+    _perm: bool = Depends(require_permission("reports.view")),
     session: AsyncSession = Depends(get_secure_session),
     tenant_id: uuid.UUID = Depends(get_tenant_id_from_header)
 ):
@@ -195,6 +221,7 @@ async def get_menu_engineering(
 async def simulate_item_pricing(
     item_id: uuid.UUID,
     payload: SimulatePricingPayload,
+    _perm: bool = Depends(require_permission("menu.read")),
     session: AsyncSession = Depends(get_secure_session),
     tenant_id: uuid.UUID = Depends(get_tenant_id_from_header)
 ):

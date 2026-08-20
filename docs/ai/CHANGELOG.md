@@ -1,6 +1,73 @@
 # Changelog
 
-## 2026-08-17 - DevSecOps & Security Hardening (Front-End, Back-End, Database & 2FA TOTP)
+## 2026-08-20 - ERP Hardening & Chain of Truth (P2: Managerial Layer, Theoretical Perpetual Stock & Predictive Insights)
+- **Estoque Teórico Perpétuo por SKU (P2.1):**
+  - Implementado `InventoryService.calculate_theoretical_stock_by_sku`: computa o estoque teórico perpétuo ($Q_{inicial} + E - S_{reg} - C_{teo}$), compara com o saldo físico projetado e apura a divergência quantitativa ($\Delta Q$) e financeira ($\Delta V$) por insumo.
+  - Adicionado endpoint `GET /inventory/theoretical-balances` protegido por `require_permission("inventory.read")`.
+- **Curva ABC com Consumo Teórico Integrado (P2.2a):**
+  - Refatorado `IntelligenceService.calculate_abc_classification` para agregar tanto saídas físicas do ledger quanto consumos teóricos originados de vendas no PDV.
+- **Detecção Preditiva de Desvio de CMV por Prato (P2.2b):**
+  - Implementado `IntelligenceService.detect_dish_cmv_drift`: avalia fichas técnicas ativas com recálculo dinâmico via `CostingEngine` e compara com baseline para sinalizar desvios (`NORMAL`, `WARNING`, `CRITICAL`).
+  - Adicionado endpoint `GET /intelligence/dishes/cmv-drift` protegido por `require_permission("reports.view")`.
+- **Projeção de Ruptura com Lead Time Real de Fornecedor (P2.2c):**
+  - Implementado `IntelligenceService.calculate_supplier_lead_time_stockouts`: extrai prazos reais médios de entrega por fornecedor e cruza com o *burn rate* diário dos últimos 30 dias para classificar risco de ruptura.
+  - Adicionado endpoint `GET /intelligence/stockout-risks` protegido por `require_permission("reports.view")`.
+- **Enforcement Transversal de RBAC no Intelligence (P2.2d):**
+  - Aplicado `require_permission` em todos os endpoints de políticas de estoque, sugestões de compra e alertas operacionais.
+- **Testes & Validação Automatizada (P2.3):**
+  - Criada suíte `tests/integration/test_p2_managerial_layer.py` (3 novos testes), totalizando 11 testes automatizados passando em 0.40s.
+
+## 2026-08-20 - ERP Hardening & Chain of Truth (P1: Ledger Identity, Reversal Flows, Audit Wiring & Sales Location Scoping)
+- **Identidade e Motivo no Ledger de Estoque (P1.1):**
+  - Adicionadas colunas `actor_user_id` (UUID), `reason_code` (VARCHAR) e `notes` (VARCHAR) na tabela `stock_movements` via migração Alembic `7b8c9d0e1f2a_phase1_ledger_identity_and_sales_location.py`.
+  - Atualizados `InventoryService.post_goods_receipt`, `InventoryService.close_inventory_session` e `InventoryService.register_loss` para registrar a identidade do operador e justificativa técnica.
+- **Mecanismo de Estorno/Reversão Imutável (P1.2):**
+  - Implementado `InventoryService.reverse_movement`: cria um novo `StockMovement` de tipo `REVERSAL` referenciando o original, com entradas inversas no ledger preservando o custo exato original e ajustando o saldo projetado, marcando o original como `REVERSED` sem violar a imutabilidade do banco.
+  - Adicionado endpoint `POST /inventory/movements/{id}/reverse` protegido por `require_permission("inventory.adjust")`.
+- **Fiação Transversal de Auditoria Administrativa (P1.3):**
+  - Integrado `AuditService.log_action()` em operações vitais:
+    - `INVENTORY_SESSION_CLOSED`
+    - `STOCK_LOSS_RECORDED`
+    - `STOCK_MOVEMENT_REVERSED`
+    - `PURCHASE_ORDER_CREATED`
+    - `PURCHASE_ORDER_APPROVED`
+    - `PURCHASE_ORDER_RECEIVED`
+    - `RECIPE_VERSION_PUBLISHED`
+    - `MEMBER_INVITED`
+    - `MEMBER_ROLE_UPDATED`
+- **Localidade nas Vendas e Relatório Consolidado (P1.4):**
+  - Adicionada coluna `location_id` na tabela `sales` com chave estrangeira para `locations.id`.
+  - `SalesService.import_sales` agora recebe e propaga `location_id`.
+  - `ConsolidatedReportService.generate` agora filtra receita de vendas por unidade (`Sale.location_id == location_id`).
+- **Testes & Validação:**
+  - Criada suíte `tests/integration/test_p1_truth_chain.py` cobrindo reversão imutável, bloqueio de reversão duplicada, registro de perdas com auditoria e escopo de vendas por unidade (8 testes passando ao todo).
+
+## 2026-08-20 - ERP Core Hardening (P0: RBAC Enforcement, Transaction Commits & Unified Costing Engine)
+- **Correção Crítica de Transações & Commits (P0.1):**
+  - Adicionado `await db.commit()` e tratamento transacional com rollback nos routers `apps/api/routers/recipes.py`, `team.py`, `locations.py`, `suppliers.py`, `catalog.py`, e `menu.py`, eliminando a perda silenciosa de dados após requests HTTP.
+- **Enforcement Transversal de RBAC (P0.2):**
+  - Mapeamento completo de permissões por perfil (`admin`, `manager`, `viewer`) em `packages/security/rbac.py`.
+  - Aplicada a dependência `require_permission()` em todas as operações sensíveis nos routers:
+    - `inventory_sessions.py` (`inventory.read`, `inventory.count`, `inventory.close`)
+    - `inventory.py` (`inventory.read`, `inventory.adjust`)
+    - `purchasing.py` (`purchasing.read`, `purchasing.create`, `purchasing.approve`, `purchasing.receive`)
+    - `recipes.py` (`recipes.read`, `recipes.edit`, `recipes.publish`)
+    - `team.py` (`users.manage`, `labor.read`, `labor.manage`)
+    - `menu.py` (`menu.read`, `menu.edit`, `reports.view`)
+    - `locations.py`, `suppliers.py`, `catalog.py` (`inventory.read`, `inventory.adjust`, `purchasing.create`)
+  - Adicionado endpoint `POST /purchasing/orders/{id}/approve` protegido por `purchasing.approve`.
+- **Validação de Governança de Usuários (P0.3):**
+  - Validação estrita de roles permitidos em `TenantService.create_membership` e `TenantService.update_membership_role`.
+  - Proteção contra demotion do único administrador do tenant.
+- **Autoridade Centralizada de Custo (P0.4):**
+  - Criado `modules/costing/engine.py` (`CostingEngine`) como fonte única de verdade para custos médios ponderados (CMP) e de saldo de SKUs.
+  - Eliminados fallbacks inventados (`Decimal("10.00")` em `MenuService`).
+  - Corrigido o cálculo de `portion_cost` em receitas (`recipes.py`).
+- **Correção de Inteligência Operacional (P0.5):**
+  - Corrigida a sensibilidade de caixa nos status de pedidos de compra (`APPROVED`, `SENT`, `PARTIAL_RECEIPT`) em `modules/intelligence/service.py`.
+  - Corrigido o join de localidade em `calculate_abc_classification` e `generate_operational_alerts` para utilizar `StockMovement.location_id`.
+- **Testes & Validação:**
+  - Criada suíte `tests/integration/test_p0_hardening.py` validando matriz RBAC, segurança de demotion, validação de roles e cálculo determinístico de custo zero.
 - **Front-End Hardening (Next.js 16):**
   - Configurados Headers de Segurança HTTP estritos no `next.config.ts` (`Content-Security-Policy`, `X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Strict-Transport-Security`, `Permissions-Policy`).
   - Forçada a flag `secure: true` para cookies de sessão em ambiente de produção (`session.ts`).

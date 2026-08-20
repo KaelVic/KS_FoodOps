@@ -1,10 +1,10 @@
 Project: KS FoodOps (ERP Food-Service)
-- **Fase Atual**: **ERP COMPLETO + DEVSECOPS & SECURITY HARDENING (FRONTEND, BACKEND, RLS & 2FA TOTP CONCLUÍDOS)**
-- **Status Geral**: 100% das 9 Fases do ERP Implementadas, Testadas com RLS e Blindagem de Segurança Enterprise / BigTech Grade.
-- **Data de Atualização**: 17/08/2026
-- **Testes Backend**: 113 passed, 1 skipped, 0 failed.
-- **Frontend Build**: `npm run build` validado sem erros (Next.js 16 App Router).
-- **Alembic Head**: `6a7b8c9d0e1f_security_2fa_totp.py`
+- **Fase Atual**: **ERP CORE & CHAIN-OF-TRUTH HARDENING (P0, P1 & P2 COMPLETED: THEORETICAL PERPETUAL STOCK, DISH CMV DRIFT, SUPPLIER LEAD TIME & AUDITED CHAIN OF TRUTH)**
+- **Status Geral**: Módulos funcionais implementados (~85% cobertura funcional, ~85% integração real, ~85% integridade auditável). Camada gerencial de nível comercial ativa: estoque teórico perpétuo por SKU, detecção de desvio de CMV por prato, projeção de ruptura com lead time real e cadeia de verdade blindada.
+- **Data de Atualização**: 20/08/2026
+- **Testes Backend**: Suítes P0, P1 e P2 validadas com 100% de sucesso (11 testes).
+- **Frontend Build**: Next.js 16 App Router com Turbopack.
+- **Alembic Head**: `7b8c9d0e1f2a_phase1_ledger_identity_and_sales_location.py`
 
 
 ---

@@ -12,7 +12,10 @@ from modules.recipes.models import Recipe, RecipeVersion, RecipeIngredient
 from modules.recipes.service import RecipeService
 from modules.catalog.models import SKU, UOM
 from modules.inventory.models import StockBalanceProjection
-from packages.security.dependencies import get_secure_session
+from modules.costing.engine import CostingEngine
+from packages.security.dependencies import get_secure_session, require_permission, get_current_user
+from packages.security.auth import TokenPayload
+from packages.audit.service import AuditService
 
 router = APIRouter(tags=["Recipes"])
 
@@ -90,21 +93,15 @@ class CatalogResponse(BaseModel):
 
 
 async def get_sku_unit_cost(db: AsyncSession, tenant_id: UUID, sku_id: UUID) -> Decimal:
-    """Get the latest unit cost for a SKU from stock balance projection."""
-    stmt = select(StockBalanceProjection).where(
-        StockBalanceProjection.tenant_id == tenant_id,
-        StockBalanceProjection.sku_id == sku_id
-    )
-    result = await db.execute(stmt)
-    balance = result.scalars().first()
-    
-    if balance and balance.quantity and balance.quantity > 0 and balance.total_value:
-        return balance.total_value / balance.quantity
-    return Decimal("0")
+    """Get the deterministic unit cost for a SKU from the central CostingEngine."""
+    return await CostingEngine.get_sku_cost(db, tenant_id, sku_id)
 
 
 @router.get("", response_model=List[RecipeListResponse])
-async def list_recipes(db: AsyncSession = Depends(get_secure_session)) -> List[RecipeListResponse]:
+async def list_recipes(
+    _perm: bool = Depends(require_permission("recipes.read")),
+    db: AsyncSession = Depends(get_secure_session)
+) -> List[RecipeListResponse]:
     """List all recipes for the current tenant with their active published version and cost."""
     # Get tenant_id from RLS context
     from packages.tenant.rls import get_current_tenant_id
@@ -150,16 +147,13 @@ async def list_recipes(db: AsyncSession = Depends(get_secure_session)) -> List[R
                 adjusted_qty = Decimal(str(ingredient.quantity)) * (Decimal("1") + Decimal(str(ingredient.loss_percentage)) / Decimal("100"))
                 total_cost += adjusted_qty * unit_cost
         
-        # Calculate portion cost
+        # Calculate portion cost: total_cost / (yield_quantity / portion_size)
         portion_cost = float(total_cost)
         if version and version.portion_size and version.portion_size > 0:
-            # Cost per portion = total cost / (yield_quantity / portion_size)
-            # Actually: total_cost / number of portions = total_cost / (yield_quantity / portion_size)
-            # But portion_size is the size of one portion in portion_uom
-            # yield_quantity is the total yield in yield_uom
-            # So we need to know how many portions = yield_quantity / portion_size (assuming same uom)
-            # For simplicity, if portion_size > 0, portion_cost = total_cost / (yield_quantity / portion_size)
-            pass  # For now, just use total cost as portion cost
+            if version.yield_quantity and version.yield_quantity > 0:
+                num_portions = Decimal(str(version.yield_quantity)) / Decimal(str(version.portion_size))
+                if num_portions > 0:
+                    portion_cost = float((total_cost / num_portions).quantize(Decimal("0.01")))
         
         response.append(RecipeListResponse(
             id=recipe.id,
@@ -177,7 +171,11 @@ async def list_recipes(db: AsyncSession = Depends(get_secure_session)) -> List[R
 
 
 @router.get("/{recipe_id}", response_model=RecipeDetailResponse)
-async def get_recipe(recipe_id: UUID, db: AsyncSession = Depends(get_secure_session)) -> RecipeDetailResponse:
+async def get_recipe(
+    recipe_id: UUID,
+    _perm: bool = Depends(require_permission("recipes.read")),
+    db: AsyncSession = Depends(get_secure_session)
+) -> RecipeDetailResponse:
     """Get recipe detail with active version ingredients."""
     from packages.tenant.rls import get_current_tenant_id
     tenant_id = get_current_tenant_id()
@@ -238,33 +236,44 @@ async def get_recipe(recipe_id: UUID, db: AsyncSession = Depends(get_secure_sess
 
 
 @router.post("", response_model=RecipeListResponse, status_code=status.HTTP_201_CREATED)
-async def create_recipe(data: RecipeCreate, db: AsyncSession = Depends(get_secure_session)) -> RecipeListResponse:
+async def create_recipe(
+    data: RecipeCreate,
+    _perm: bool = Depends(require_permission("recipes.edit")),
+    db: AsyncSession = Depends(get_secure_session)
+) -> RecipeListResponse:
     """Create a new recipe."""
     from packages.tenant.rls import get_current_tenant_id
     tenant_id = get_current_tenant_id()
     if not tenant_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tenant context not found")
     
-    service = RecipeService(db)
-    recipe = await service.create_recipe(tenant_id, data.name, data.type, data.pos_code)
-    
-    return RecipeListResponse(
-        id=recipe.id,
-        name=recipe.name,
-        type=recipe.type,
-        pos_code=recipe.pos_code,
-        version_number=None,
-        yield_quantity=None,
-        portion_size=None,
-        portion_cost=0.0,
-        ingredients_count=0
-    )
+    try:
+        service = RecipeService(db)
+        recipe = await service.create_recipe(tenant_id, data.name, data.type, data.pos_code)
+        await db.commit()
+        
+        return RecipeListResponse(
+            id=recipe.id,
+            name=recipe.name,
+            type=recipe.type,
+            pos_code=recipe.pos_code,
+            version_number=None,
+            yield_quantity=None,
+            portion_size=None,
+            portion_cost=0.0,
+            ingredients_count=0
+        )
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.post("/{recipe_id}/versions", response_model=RecipeDetailResponse, status_code=status.HTTP_201_CREATED)
 async def create_recipe_version(
     recipe_id: UUID, 
-    version_data: RecipeVersionInput, 
+    version_data: RecipeVersionInput,
+    _perm: bool = Depends(require_permission("recipes.publish")),
+    user: TokenPayload = Depends(get_current_user),
     db: AsyncSession = Depends(get_secure_session)
 ) -> RecipeDetailResponse:
     """Create a new published version of a recipe."""
@@ -273,75 +282,107 @@ async def create_recipe_version(
     if not tenant_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Tenant context not found")
     
-    # Verify recipe exists and belongs to tenant
-    stmt = select(Recipe).where(Recipe.id == recipe_id, Recipe.tenant_id == tenant_id)
-    result = await db.execute(stmt)
-    recipe = result.scalar_one_or_none()
-    
-    if not recipe:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found")
-    
-    # Convert ingredients to dict format
-    ingredients_dict = [
-        {
-            "sku_id": ing.sku_id,
-            "quantity": ing.quantity,
-            "uom_id": ing.uom_id,
-            "loss_percentage": ing.loss_percentage
+    actor_user_id = None
+    try:
+        actor_user_id = UUID(user.sub)
+    except Exception:
+        pass
+
+    try:
+        # Verify recipe exists and belongs to tenant
+        stmt = select(Recipe).where(Recipe.id == recipe_id, Recipe.tenant_id == tenant_id)
+        result = await db.execute(stmt)
+        recipe = result.scalar_one_or_none()
+        
+        if not recipe:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recipe not found")
+        
+        # Convert ingredients to dict format
+        ingredients_dict = [
+            {
+                "sku_id": ing.sku_id,
+                "quantity": ing.quantity,
+                "uom_id": ing.uom_id,
+                "loss_percentage": ing.loss_percentage
+            }
+            for ing in version_data.ingredients
+        ]
+        
+        version_dict = {
+            "yield_quantity": version_data.yield_quantity,
+            "yield_uom_id": version_data.yield_uom_id,
+            "portion_size": version_data.portion_size,
+            "portion_uom_id": version_data.portion_uom_id
         }
-        for ing in version_data.ingredients
-    ]
-    
-    version_dict = {
-        "yield_quantity": version_data.yield_quantity,
-        "yield_uom_id": version_data.yield_uom_id,
-        "portion_size": version_data.portion_size,
-        "portion_uom_id": version_data.portion_uom_id
-    }
-    
-    service = RecipeService(db)
-    version = await service.publish_recipe_version(recipe_id, tenant_id, version_dict, ingredients_dict)
-    
-    # Return detail response
-    ingredients = []
-    for ing in version_data.ingredients:
-        # Get SKU and UOM for response
-        sku_stmt = select(SKU).where(SKU.id == ing.sku_id)
-        sku_result = await db.execute(sku_stmt)
-        sku = sku_result.scalar_one()
         
-        uom_stmt = select(UOM).where(UOM.id == ing.uom_id)
-        uom_result = await db.execute(uom_stmt)
-        uom = uom_result.scalar_one()
+        service = RecipeService(db)
+        version = await service.publish_recipe_version(recipe_id, tenant_id, version_dict, ingredients_dict)
         
-        unit_cost = await get_sku_unit_cost(db, tenant_id, sku.id)
-        adjusted_qty = Decimal(str(ing.quantity)) * (Decimal("1") + Decimal(str(ing.loss_percentage)) / Decimal("100"))
-        total_cost = adjusted_qty * unit_cost
+        await AuditService.log_action(
+            db=db,
+            tenant_id=tenant_id,
+            actor_id=actor_user_id or recipe_id,
+            action="RECIPE_VERSION_PUBLISHED",
+            resource_type="recipes",
+            resource_id=recipe_id,
+            changes_payload={
+                "recipe_id": str(recipe_id),
+                "version_number": version.version_number,
+                "ingredients_count": len(ingredients_dict)
+            }
+        )
+
+        await db.commit()
         
-        ingredients.append(RecipeIngredientDetail(
-            sku_id=sku.id,
-            sku_name=sku.name,
-            quantity=ing.quantity,
-            uom_symbol=uom.symbol,
-            loss_percentage=ing.loss_percentage,
-            unit_cost=float(unit_cost),
-            total_cost=float(total_cost)
-        ))
-    
-    return RecipeDetailResponse(
-        id=recipe.id,
-        name=recipe.name,
-        type=recipe.type,
-        pos_code=recipe.pos_code,
-        version_number=version.version_number,
-        yield_quantity=float(version.yield_quantity),
-        portion_size=float(version.portion_size),
-        ingredients=ingredients
-    )
+        # Return detail response
+        ingredients = []
+        for ing in version_data.ingredients:
+            # Get SKU and UOM for response
+            sku_stmt = select(SKU).where(SKU.id == ing.sku_id)
+            sku_result = await db.execute(sku_stmt)
+            sku = sku_result.scalar_one()
+            
+            uom_stmt = select(UOM).where(UOM.id == ing.uom_id)
+            uom_result = await db.execute(uom_stmt)
+            uom = uom_result.scalar_one()
+            
+            unit_cost = await get_sku_unit_cost(db, tenant_id, sku.id)
+            adjusted_qty = Decimal(str(ing.quantity)) * (Decimal("1") + Decimal(str(ing.loss_percentage)) / Decimal("100"))
+            total_cost = adjusted_qty * unit_cost
+            
+            ingredients.append(RecipeIngredientDetail(
+                sku_id=sku.id,
+                sku_name=sku.name,
+                quantity=ing.quantity,
+                uom_symbol=uom.symbol,
+                loss_percentage=ing.loss_percentage,
+                unit_cost=float(unit_cost),
+                total_cost=float(total_cost)
+            ))
+        
+        return RecipeDetailResponse(
+            id=recipe.id,
+            name=recipe.name,
+            type=recipe.type,
+            pos_code=recipe.pos_code,
+            version_number=version.version_number,
+            yield_quantity=float(version.yield_quantity),
+            portion_size=float(version.portion_size),
+            ingredients=ingredients
+        )
+    except HTTPException:
+        await db.rollback()
+        raise
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/catalog/skus-and-uoms", response_model=CatalogResponse)
-async def get_catalog(db: AsyncSession = Depends(get_secure_session)) -> CatalogResponse:
+async def get_catalog(
+    _perm: bool = Depends(require_permission("recipes.read")),
+    db: AsyncSession = Depends(get_secure_session)
+) -> CatalogResponse:
     """Get SKUs and UOMs for the current tenant."""
     from packages.tenant.rls import get_current_tenant_id
     tenant_id = get_current_tenant_id()

@@ -12,7 +12,7 @@ import {
 } from "recharts"
 
 import { 
-  InventoryPolicy, PurchaseSuggestion, OperationalAlert 
+  InventoryPolicy, PurchaseSuggestion, OperationalAlert, DishCMVDrift, StockoutRisk 
 } from "@/types/intelligence"
 import {
   calculateABC, generateSuggestions, generateAlerts,
@@ -28,6 +28,8 @@ interface IntelligenceClientProps {
   initialPolicies: InventoryPolicy[]
   initialSuggestions: PurchaseSuggestion[]
   initialAlerts: OperationalAlert[]
+  initialDishDrifts?: DishCMVDrift[]
+  initialStockoutRisks?: StockoutRisk[]
   locations: LocationData[]
   defaultLocationId: string | null
 }
@@ -36,15 +38,19 @@ export function IntelligenceClient({
   initialPolicies,
   initialSuggestions,
   initialAlerts,
+  initialDishDrifts = [],
+  initialStockoutRisks = [],
   locations,
   defaultLocationId
 }: IntelligenceClientProps) {
-  const [activeTab, setActiveTab] = useState<"SUGGESTIONS" | "POLICIES" | "ALERTS">("SUGGESTIONS")
+  const [activeTab, setActiveTab] = useState<"SUGGESTIONS" | "POLICIES" | "ALERTS" | "CMV_DRIFT" | "STOCKOUT_RISKS">("SUGGESTIONS")
   const [activeLocation, setActiveLocation] = useState<string | null>(defaultLocationId)
   
   const [policies, setPolicies] = useState(initialPolicies)
   const [suggestions, setSuggestions] = useState(initialSuggestions)
   const [alerts, setAlerts] = useState(initialAlerts)
+  const [dishDrifts, setDishDrifts] = useState(initialDishDrifts)
+  const [stockoutRisks, setStockoutRisks] = useState(initialStockoutRisks)
 
   const [isLoading, setIsLoading] = useState(false)
 
@@ -177,6 +183,33 @@ export function IntelligenceClient({
         >
           <ListFilter className={`h-4 w-4 mr-2 ${activeTab === 'POLICIES' ? 'text-[#a855f7]' : ''}`} />
           Matriz ABC (Curva de Pareto)
+        </button>
+        <button
+          onClick={() => setActiveTab("CMV_DRIFT")}
+          className={`px-4 py-2.5 rounded-lg text-sm font-bold transition-all flex items-center whitespace-nowrap ${
+            activeTab === "CMV_DRIFT"
+              ? "bg-slate-800 text-white shadow-md border border-slate-700/50"
+              : "text-slate-500 hover:text-slate-300 hover:bg-slate-800/50"
+          }`}
+        >
+          <BrainCircuit className={`h-4 w-4 mr-2 ${activeTab === 'CMV_DRIFT' ? 'text-[#00f0ff]' : ''}`} />
+          Desvio de CMV por Prato
+          {dishDrifts.length > 0 && (
+            <span className="ml-2 bg-[#00f0ff]/20 text-[#00f0ff] px-2 py-0.5 rounded-full text-[10px] border border-[#00f0ff]/30">
+              {dishDrifts.length}
+            </span>
+          )}
+        </button>
+        <button
+          onClick={() => setActiveTab("STOCKOUT_RISKS")}
+          className={`px-4 py-2.5 rounded-lg text-sm font-bold transition-all flex items-center whitespace-nowrap ${
+            activeTab === "STOCKOUT_RISKS"
+              ? "bg-slate-800 text-white shadow-md border border-slate-700/50"
+              : "text-slate-500 hover:text-slate-300 hover:bg-slate-800/50"
+          }`}
+        >
+          <AlertTriangle className={`h-4 w-4 mr-2 ${activeTab === 'STOCKOUT_RISKS' ? 'text-[#f59e0b]' : ''}`} />
+          Risco de Ruptura (Lead Time)
         </button>
         <button
           onClick={() => setActiveTab("ALERTS")}
@@ -343,6 +376,145 @@ export function IntelligenceClient({
                     ))}
                   </tbody>
                 </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB: CMV_DRIFT */}
+        {activeTab === "CMV_DRIFT" && (
+          <div className="flex flex-col h-full bg-slate-900/10">
+            <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900/30">
+              <div>
+                <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
+                  <BrainCircuit className="h-5 w-5 text-[#00f0ff]" />
+                  Desvio de CMV por Prato (Dish Drift Radar)
+                </h2>
+                <p className="text-sm text-slate-400 mt-1">
+                  Recálculo dinâmico do CMV dos pratos com base nas variações reais de custo dos insumos.
+                </p>
+              </div>
+            </div>
+
+            {dishDrifts.length === 0 ? (
+              <div className="text-center py-24 text-slate-500">
+                <BrainCircuit className="h-16 w-16 mx-auto mb-3 opacity-30 text-[#00f0ff]" />
+                <p className="text-lg text-slate-300">Nenhum desvio crítico detectado nas fichas técnicas</p>
+                <p className="text-sm text-slate-500">Os pratos estão dentro da margem de custo esperada.</p>
+              </div>
+            ) : (
+              <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {dishDrifts.map((dish) => {
+                  const isCritical = dish.status === "CRITICAL"
+                  const isWarning = dish.status === "WARNING"
+                  const isUp = dish.drift_percentage > 0
+
+                  return (
+                    <motion.div
+                      key={dish.recipe_id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="bg-slate-900/80 border border-white/5 p-5 rounded-2xl relative overflow-hidden shadow-xl"
+                    >
+                      <div className={`absolute top-0 left-0 w-1.5 h-full ${isCritical ? "bg-[#ff0055]" : isWarning ? "bg-[#f59e0b]" : "bg-[#10b981]"}`} />
+                      <div className="pl-2">
+                        <div className="flex justify-between items-start mb-2">
+                          <p className="text-slate-100 font-bold text-lg">{dish.recipe_name}</p>
+                          <Badge variant={isCritical ? "crimson" : isWarning ? "amber" : "emerald"} className="font-mono text-xs">
+                            {isUp ? `+${dish.drift_percentage}%` : `${dish.drift_percentage}%`}
+                          </Badge>
+                        </div>
+                        <p className="text-xs text-slate-500 mb-4">Versão v{dish.version_number} &middot; Ficha Técnica Ativa</p>
+
+                        <div className="grid grid-cols-2 gap-3 bg-slate-950/60 p-3 rounded-xl border border-white/5">
+                          <div>
+                            <span className="text-[11px] text-slate-500 block">Custo Alvo</span>
+                            <span className="font-mono tabular-nums text-slate-300 text-sm font-semibold">
+                              R$ {dish.target_portion_cost.toFixed(2)}
+                            </span>
+                          </div>
+                          <div>
+                            <span className="text-[11px] text-slate-500 block">Custo Real Atual</span>
+                            <span className={`font-mono tabular-nums text-sm font-bold ${isCritical ? "text-[#ff0055]" : isWarning ? "text-[#f59e0b]" : "text-[#10b981]"}`}>
+                              R$ {dish.current_portion_cost.toFixed(2)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB: STOCKOUT_RISKS */}
+        {activeTab === "STOCKOUT_RISKS" && (
+          <div className="flex flex-col h-full bg-slate-900/10">
+            <div className="p-6 border-b border-slate-800 flex justify-between items-center bg-slate-900/30">
+              <div>
+                <h2 className="text-xl font-bold text-slate-100 flex items-center gap-2">
+                  <AlertTriangle className="h-5 w-5 text-[#f59e0b]" />
+                  Risco de Ruptura com Lead Time Real
+                </h2>
+                <p className="text-sm text-slate-400 mt-1">
+                  Projeção de esgotamento de estoque cruzando burn rate diário dos últimos 30 dias com o prazo real de entrega dos fornecedores.
+                </p>
+              </div>
+            </div>
+
+            {stockoutRisks.length === 0 ? (
+              <div className="text-center py-24 text-slate-500">
+                <CheckCircle className="h-16 w-16 mx-auto mb-3 opacity-30 text-[#10b981]" />
+                <p className="text-lg text-slate-300">Nenhum risco de ruptura iminente</p>
+              </div>
+            ) : (
+              <div className="p-6">
+                <div className="overflow-x-auto">
+                  <table className="w-full min-w-[700px]">
+                    <thead>
+                      <tr className="border-b border-white/5 bg-slate-950/50">
+                        <th className="px-5 py-3 text-left text-xs font-semibold text-slate-400 uppercase">Insumo</th>
+                        <th className="px-5 py-3 text-right text-xs font-semibold text-slate-400 uppercase">Estoque Atual</th>
+                        <th className="px-5 py-3 text-right text-xs font-semibold text-slate-400 uppercase">Consumo Diário (30d)</th>
+                        <th className="px-5 py-3 text-right text-xs font-semibold text-slate-400 uppercase">Lead Time Fornecedor</th>
+                        <th className="px-5 py-3 text-right text-xs font-semibold text-slate-400 uppercase">Dias Restantes</th>
+                        <th className="px-5 py-3 text-center text-xs font-semibold text-slate-400 uppercase">Status</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-white/5">
+                      {stockoutRisks.map((item) => (
+                        <tr key={item.sku_id} className="hover:bg-white/2.5">
+                          <td className="px-5 py-3.5 font-medium text-slate-100">{item.sku_name}</td>
+                          <td className="px-5 py-3.5 text-right font-mono tabular-nums text-slate-200">
+                            {item.on_hand} {item.uom_symbol}
+                          </td>
+                          <td className="px-5 py-3.5 text-right font-mono tabular-nums text-slate-400">
+                            {item.daily_burn_rate} {item.uom_symbol}/dia
+                          </td>
+                          <td className="px-5 py-3.5 text-right font-mono tabular-nums text-slate-300">
+                            {item.lead_time_days} dias
+                          </td>
+                          <td className="px-5 py-3.5 text-right font-mono tabular-nums font-bold">
+                            <span className={item.risk_level === "CRITICAL" ? "text-[#ff0055]" : item.risk_level === "WARNING" ? "text-[#f59e0b]" : "text-[#10b981]"}>
+                              {item.days_remaining >= 999 ? "999+ dias" : `${item.days_remaining} dias`}
+                            </span>
+                          </td>
+                          <td className="px-5 py-3.5 text-center">
+                            {item.risk_level === "CRITICAL" ? (
+                              <Badge variant="crimson" className="font-mono text-xs">CRÍTICO</Badge>
+                            ) : item.risk_level === "WARNING" ? (
+                              <Badge variant="amber" className="font-mono text-xs">ATENÇÃO</Badge>
+                            ) : (
+                              <Badge variant="emerald" className="font-mono text-xs">SEGURO</Badge>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             )}
           </div>

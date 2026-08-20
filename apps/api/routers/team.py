@@ -6,7 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel, Field, ConfigDict
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from packages.security.dependencies import get_secure_session, get_tenant_id_from_header
+from packages.security.dependencies import get_secure_session, get_tenant_id_from_header, require_permission, get_current_user
+from packages.security.auth import TokenPayload
+from packages.audit.service import AuditService
 from packages.tenant.service import TenantService
 from modules.team.labor_service import LaborService
 
@@ -74,6 +76,7 @@ class TipCalculatePayload(BaseModel):
 # --- Membership Routes ---
 @router.get("/memberships", response_model=List[MembershipResponse])
 async def list_memberships(
+    _perm: bool = Depends(require_permission("users.manage")),
     tenant_id: uuid.UUID = Depends(get_tenant_id_from_header),
     db: AsyncSession = Depends(get_secure_session)
 ):
@@ -82,22 +85,76 @@ async def list_memberships(
 @router.post("/invite", response_model=MembershipResponse, status_code=status.HTTP_201_CREATED)
 async def invite_member(
     payload: MembershipBase,
+    _perm: bool = Depends(require_permission("users.manage")),
+    user: TokenPayload = Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id_from_header),
     db: AsyncSession = Depends(get_secure_session)
 ):
-    return await TenantService.create_membership(db, tenant_id, payload.user_id, payload.role)
+    actor_user_id = None
+    try:
+        actor_user_id = uuid.UUID(user.sub)
+    except Exception:
+        pass
+
+    try:
+        membership = await TenantService.create_membership(db, tenant_id, payload.user_id, payload.role)
+        await AuditService.log_action(
+            db=db,
+            tenant_id=tenant_id,
+            actor_id=actor_user_id or membership.id,
+            action="MEMBER_INVITED",
+            resource_type="tenant_memberships",
+            resource_id=membership.id,
+            changes_payload={"user_id": payload.user_id, "role": payload.role}
+        )
+        await db.commit()
+        return membership
+    except ValueError as e:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/{membership_id}/role", response_model=MembershipResponse)
 async def update_role(
     membership_id: uuid.UUID,
     payload: MembershipUpdate,
+    _perm: bool = Depends(require_permission("users.manage")),
+    user: TokenPayload = Depends(get_current_user),
     tenant_id: uuid.UUID = Depends(get_tenant_id_from_header),
     db: AsyncSession = Depends(get_secure_session)
 ):
-    membership = await TenantService.update_membership_role(db, tenant_id, membership_id, payload.role)
-    if not membership:
-        raise HTTPException(status_code=404, detail="Membership not found")
-    return membership
+    actor_user_id = None
+    try:
+        actor_user_id = uuid.UUID(user.sub)
+    except Exception:
+        pass
+
+    try:
+        membership = await TenantService.update_membership_role(db, tenant_id, membership_id, payload.role)
+        if not membership:
+            raise HTTPException(status_code=404, detail="Membership not found")
+        await AuditService.log_action(
+            db=db,
+            tenant_id=tenant_id,
+            actor_id=actor_user_id or membership.id,
+            action="MEMBER_ROLE_UPDATED",
+            resource_type="tenant_memberships",
+            resource_id=membership.id,
+            changes_payload={"new_role": payload.role}
+        )
+        await db.commit()
+        return membership
+    except ValueError as e:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        await db.rollback()
+        raise
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # --- Phase 8 Employee Routes ---

@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from packages.security.dependencies import get_secure_session, get_tenant_id_from_header
+from packages.security.dependencies import get_secure_session, get_tenant_id_from_header, require_permission
 from modules.suppliers.service import SupplierService
 
 router = APIRouter()
@@ -28,6 +28,7 @@ class SupplierResponse(SupplierBase):
 
 @router.get("", response_model=List[SupplierResponse])
 async def list_suppliers(
+    _perm: bool = Depends(require_permission("purchasing.read")),
     tenant_id: uuid.UUID = Depends(get_tenant_id_from_header),
     db: AsyncSession = Depends(get_secure_session)
 ):
@@ -36,19 +37,35 @@ async def list_suppliers(
 @router.post("", response_model=SupplierResponse, status_code=status.HTTP_201_CREATED)
 async def create_supplier(
     payload: SupplierBase,
+    _perm: bool = Depends(require_permission("purchasing.create")),
     tenant_id: uuid.UUID = Depends(get_tenant_id_from_header),
     db: AsyncSession = Depends(get_secure_session)
 ):
-    return await SupplierService.create_supplier(db, tenant_id, payload.name, payload.tax_id)
+    try:
+        supplier = await SupplierService.create_supplier(db, tenant_id, payload.name, payload.tax_id)
+        await db.commit()
+        return supplier
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/{supplier_id}", response_model=SupplierResponse)
 async def update_supplier(
     supplier_id: uuid.UUID,
     payload: SupplierUpdate,
+    _perm: bool = Depends(require_permission("purchasing.create")),
     tenant_id: uuid.UUID = Depends(get_tenant_id_from_header),
     db: AsyncSession = Depends(get_secure_session)
 ):
-    supplier = await SupplierService.update_supplier(db, tenant_id, supplier_id, payload.name, payload.tax_id, payload.is_active)
-    if not supplier:
-        raise HTTPException(status_code=404, detail="Supplier not found")
-    return supplier
+    try:
+        supplier = await SupplierService.update_supplier(db, tenant_id, supplier_id, payload.name, payload.tax_id, payload.is_active)
+        if not supplier:
+            raise HTTPException(status_code=404, detail="Supplier not found")
+        await db.commit()
+        return supplier
+    except HTTPException:
+        await db.rollback()
+        raise
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))

@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import update, desc
 
-from packages.security.dependencies import get_secure_session, get_tenant_id_from_header
+from packages.security.dependencies import get_secure_session, get_tenant_id_from_header, require_permission
 from modules.intelligence.models import InventoryPolicy, PurchaseSuggestion, OperationalAlert
 from modules.intelligence.service import IntelligenceService
 from modules.catalog.models import SKU, UOM
@@ -22,6 +22,26 @@ router = APIRouter(tags=["Intelligence"])
 # ==========================================
 # Schemas
 # ==========================================
+
+class DishCMVDriftResponse(BaseModel):
+    recipe_id: str
+    recipe_name: str
+    version_number: int
+    current_portion_cost: float
+    target_portion_cost: float
+    drift_percentage: float
+    status: str
+
+
+class StockoutRiskResponse(BaseModel):
+    sku_id: str
+    sku_name: str
+    uom_symbol: str
+    on_hand: float
+    daily_burn_rate: float
+    days_remaining: float
+    lead_time_days: int
+    risk_level: str
 
 class InventoryPolicyResponse(BaseModel):
     id: UUID
@@ -93,6 +113,7 @@ class CalculatePayload(BaseModel):
 @router.post("/abc/calculate", status_code=status.HTTP_200_OK)
 async def calculate_abc(
     payload: CalculatePayload,
+    _perm: bool = Depends(require_permission("reports.view")),
     db: AsyncSession = Depends(get_secure_session),
     tenant_id: UUID = Depends(get_tenant_id_from_header)
 ):
@@ -104,6 +125,7 @@ async def calculate_abc(
 
 @router.get("/policies", response_model=List[InventoryPolicyResponse])
 async def list_policies(
+    _perm: bool = Depends(require_permission("reports.view")),
     db: AsyncSession = Depends(get_secure_session),
     tenant_id: UUID = Depends(get_tenant_id_from_header)
 ):
@@ -149,6 +171,7 @@ async def list_policies(
 @router.put("/policies", response_model=InventoryPolicyResponse)
 async def update_policy(
     payload: UpdatePolicyPayload,
+    _perm: bool = Depends(require_permission("purchasing.create")),
     db: AsyncSession = Depends(get_secure_session),
     tenant_id: UUID = Depends(get_tenant_id_from_header)
 ):
@@ -212,6 +235,7 @@ async def update_policy(
 @router.post("/suggestions/generate", status_code=status.HTTP_200_OK)
 async def generate_suggestions(
     payload: CalculatePayload,
+    _perm: bool = Depends(require_permission("purchasing.create")),
     db: AsyncSession = Depends(get_secure_session),
     tenant_id: UUID = Depends(get_tenant_id_from_header)
 ):
@@ -223,6 +247,7 @@ async def generate_suggestions(
 
 @router.get("/suggestions", response_model=List[PurchaseSuggestionResponse])
 async def list_suggestions(
+    _perm: bool = Depends(require_permission("purchasing.read")),
     db: AsyncSession = Depends(get_secure_session),
     tenant_id: UUID = Depends(get_tenant_id_from_header)
 ):
@@ -267,6 +292,7 @@ async def list_suggestions(
 async def convert_suggestion_to_po(
     suggestion_id: UUID,
     payload: ConvertToPOPayload,
+    _perm: bool = Depends(require_permission("purchasing.create")),
     db: AsyncSession = Depends(get_secure_session),
     tenant_id: UUID = Depends(get_tenant_id_from_header)
 ):
@@ -293,8 +319,6 @@ async def convert_suggestion_to_po(
     db.add(po)
     await db.flush()
     
-    # Note: A real implementation would lookup supplier SKU pricing and mapping.
-    # We will insert a generic PO line with zero price for now, to be filled by user.
     po_line = PurchaseOrderLine(
         tenant_id=tenant_id,
         purchase_order_id=po.id,
@@ -317,6 +341,7 @@ async def convert_suggestion_to_po(
 @router.post("/alerts/generate", status_code=status.HTTP_200_OK)
 async def generate_alerts(
     payload: CalculatePayload,
+    _perm: bool = Depends(require_permission("reports.view")),
     db: AsyncSession = Depends(get_secure_session),
     tenant_id: UUID = Depends(get_tenant_id_from_header)
 ):
@@ -328,6 +353,7 @@ async def generate_alerts(
 
 @router.get("/alerts", response_model=List[OperationalAlertResponse])
 async def list_alerts(
+    _perm: bool = Depends(require_permission("reports.view")),
     db: AsyncSession = Depends(get_secure_session),
     tenant_id: UUID = Depends(get_tenant_id_from_header)
 ):
@@ -374,6 +400,7 @@ async def list_alerts(
 @router.post("/alerts/{alert_id}/resolve", status_code=status.HTTP_200_OK)
 async def resolve_alert(
     alert_id: UUID,
+    _perm: bool = Depends(require_permission("reports.view")),
     db: AsyncSession = Depends(get_secure_session),
     tenant_id: UUID = Depends(get_tenant_id_from_header)
 ):
@@ -385,3 +412,31 @@ async def resolve_alert(
     await db.execute(stmt)
     await db.commit()
     return {"message": "Alert resolved"}
+
+
+@router.get("/dishes/cmv-drift", response_model=List[DishCMVDriftResponse])
+async def get_dish_cmv_drift(
+    threshold: float = 5.0,
+    _perm: bool = Depends(require_permission("reports.view")),
+    db: AsyncSession = Depends(get_secure_session),
+    tenant_id: UUID = Depends(get_tenant_id_from_header)
+):
+    """
+    Detects recipes whose current ingredient cost has deviated from target by more than threshold %.
+    """
+    service = IntelligenceService(db)
+    return await service.detect_dish_cmv_drift(tenant_id=tenant_id, threshold_percentage=threshold)
+
+
+@router.get("/stockout-risks", response_model=List[StockoutRiskResponse])
+async def get_stockout_risks(
+    location_id: Optional[UUID] = None,
+    _perm: bool = Depends(require_permission("reports.view")),
+    db: AsyncSession = Depends(get_secure_session),
+    tenant_id: UUID = Depends(get_tenant_id_from_header)
+):
+    """
+    Analyzes historical supplier lead times and daily burn rates to project stockout risks.
+    """
+    service = IntelligenceService(db)
+    return await service.calculate_supplier_lead_time_stockouts(tenant_id=tenant_id, location_id=location_id)

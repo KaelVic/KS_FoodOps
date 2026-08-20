@@ -1,49 +1,30 @@
-# Next Task — Transformação ERP KS FoodOps
+# Next Task — ERP Hardening & Chain of Truth
 
-**Status Atual: ERP Pilar 4 — Fase 8 100% Concluída e Validada** 🚀
-
----
-
-## 🗺️ Roadmap das 9 Fases do ERP
-
-- [x] **Pilar 1: Financeiro & Fiscal (100% CONCLUÍDO)**
-  - [x] **Fase 1: Módulo de Contas a Pagar (AP)** — Plano de Contas, Centros de Custo, Contas Bancárias/Caixas, Parcelamentos, PIX Copia-e-Cola, Linhas Digitáveis de Boleto e Baixas com Juros/Multa/Desconto.
-  - [x] **Fase 2: Módulo de Contas a Receber (AR) & Conciliação de Vendas/Cartões/Delivery** — Faturamento do PDV, recebíveis por bandeira de cartão/voucher (Crédito, Débito, PIX, VR, VA, iFood, Rappi), taxas de intermediação (MDR) e repasses com crédito em conta bancária.
-  - [x] **Fase 3: Fluxo de Caixa (Previsto vs Realizado) & DRE Financeira Gerencial** — Projeção diária/mensal, conciliação bancária (extratos OFX), DRE Caixa vs Competência e EBITDA / Prime Cost.
-
-- [x] **Pilar 2: Vendas, Salão & Engenharia de Menu (100% CONCLUÍDO)**
-  - [x] **Fase 4: Gestão de Cardápio & Engenharia de Menu (Matriz BCG)** — Itens Estrela, Burro de Carga, Quebra-Cabeça, Cão, margem de contribuição e precificação dinâmica vinculada a Fichas Técnicas.
-  - [x] **Fase 5: Módulo de Mesas, Comandas, KDS (Cozinha/Bar) & Delivery Hub Multi-Canal** — Mapa de mesas do salão, comanda digital, telas KDS com SLA e auto-polling, Kanban de delivery e fechamento integrado com faturamento AR e baixa bancária.
-
-- [x] **Pilar 3: Suprimentos Avançados & Central de Produção (100% CONCLUÍDO)**
-  - [x] **Fase 6: Central de Produção (Dark Kitchen / Commissary), Ordens de Produção (OPs) & Transferências Entre Filiais**.
-  - [x] **Fase 7: Gestão Multi-Unidades/Franquias & Cotação Eletrônica B2B de Fornecedores (RFQs, Comparativo de Preços e Aprovação Automática de POs)**.
-
-- [x] **Pilar 4: RH Operacional, Governança & IA Copilot**
-  - [x] **Fase 8: Escalas, Ponto, Gorjetas & Custo de Mão de Obra (Prime Cost = CMV + CMO)**.
-  - [x] **Fase 9: FoodOps Copilot & Automações Preditivas (IA Agêntica, Assistente Operacional de Restaurante, Alertas de Ruptura de Estoque/Desvio de CMV e Notificações Executivas / Resumo Diário WhatsApp/Webhook)**.
+**Status Atual: P0, P1 e P2 (Hardening do ERP e Camada Gerencial) 100% Concluídos** ✅
 
 ---
 
-## 🎯 Roadmap do ERP KS FoodOps
+## 🎯 Prioridades de Hardening do ERP KS FoodOps
 
-## 🎉 STATUS: ERP COMPLETO (100% DAS 9 FASES CONCLUÍDAS)
-
-Todas as 9 fases do plano de transformação do KS FoodOps em um ERP completo de ponta a ponta para food-service foram entregues, testadas com RLS e validadas:
-
-- [x] **Fase 1:** Inteligência de NFe & Rateios de Custos (Concluída)
-- [x] **Fase 2:** Contas a Pagar, Contas a Receber & Conciliação (Concluída)
-- [x] **Fase 3:** Fluxo de Caixa Projetado & DRE Gerencial (Concluída)
-- [x] **Fase 4:** Engenharia de Menu, Matriz BCG & Curva ABC (Concluída)
-- [x] **Fase 5:** Ordens de Produção (OP) & Transferências Internas (Concluída)
-- [x] **Fase 6:** Cotações B2B (RFQs) & Comparativo Inteligente de Fornecedores (Concluída)
-- [x] **Fase 7:** Frente de Caixa, Salão, Mesas/Comandas, Delivery Hub & KDS (Concluída)
-- [x] **Fase 8:** RH Operacional, Escalas, Ponto Digital, Rateio de Gorjetas & Prime Cost Consolidado (Concluída)
-- [x] **Fase 9:** FoodOps Copilot — IA Agêntica, Auditoria 360°, RAG & Resumos WhatsApp (Concluída)
+### P0 — Bloqueadores Críticos (CONCLUÍDOS ✅)
+- [x] **P0.1**: Adicionar `commit()` explícito e tratamento transacional com rollback nos routers (`recipes.py`, `team.py`, `locations.py`, `suppliers.py`, `catalog.py`, `menu.py`).
+- [x] **P0.2**: Aplicar RBAC com `require_permission` em todos os endpoints sensíveis (`inventory_sessions.py`, `inventory.py`, `purchasing.py`, `recipes.py`, `team.py`, `menu.py`, `catalog.py`, `locations.py`, `suppliers.py`).
+- [x] **P0.3**: Validação de roles em memberships e proteção contra demotion do único admin (`packages/tenant/service.py`).
+- [x] **P0.4**: Eliminação de fallbacks arbitrários (R$ 10) e criação de autoridade única de custo (`modules/costing/engine.py`).
+- [x] **P0.5**: Correção de case sensitivity de status de PO (`APPROVED`, `SENT`, `PARTIAL_RECEIPT`) e join de localidade via `StockMovement` no Intelligence (`modules/intelligence/service.py`).
+- [x] **P0.6**: Documentação honesta e atualizada em `PROJECT_STATE.md` e `NEXT_TASK.md`.
 
 ---
 
-## 🚀 Próximos Passos Operacionais Recomendados
-1. **Configuração de Provedor LLM Externo:** Adicionar chave de API (OpenAI GPT-4o / Anthropic Claude / Gemini) em `.env` caso deseje plugar LLMs generativos externos em conjunto com o motor RAG local determinístico já implementado.
-2. **Integração Real de WhatsApp Gateway:** Plugar credenciais de Z-API, Twilio ou Evolution API no endpoint `/copilot/briefings/dispatch` para envio programado matinal ou noturno.
-3. **Deploy em Produção / Staging:** Rodar migrações Alembic `alembic upgrade head` no ambiente de nuvem do restaurante e executar testes E2E.
+### P1 — Fechar Cadeia de Verdade do ERP (CONCLUÍDOS ✅)
+- [x] **P1.1**: Adicionar identidade do autor (`actor_user_id`), `reason_code` e `notes` no `StockMovement` via migração Alembic (`7b8c9d0e1f2a`).
+- [x] **P1.2**: Implementar fluxo de estorno/reversal de movimentos (`reverse_movement` em `InventoryService` e endpoint `POST /inventory/movements/{id}/reverse`).
+- [x] **P1.3**: Fiação transversal do `AuditService.log_action()` em todas as operações de escrita críticas (fechamento de inventário, perda, recebimento de PO, aprovação de PO, reversão, publicação de receita, convites e alteração de papéis de equipe).
+- [x] **P1.4**: Adicionar `location_id` nas vendas (`sales`) e ajustar relatório consolidado (`modules/reporting/consolidated.py`) para escopo consistente por unidade.
+
+---
+
+### P2 — Camada Gerencial de Nível Comercial (CONCLUÍDOS ✅)
+- [x] **P2.1**: Estoque teórico perpétuo e divergência operacional por SKU (`modules/inventory/service.py` e endpoint `GET /inventory/theoretical-balances`).
+- [x] **P2.2**: Insights gerenciais acionáveis (alertas de desvio de CMV por prato `GET /intelligence/dishes/cmv-drift`, projeção de ruptura com lead time real `GET /intelligence/stockout-risks` e Curva ABC com consumo teórico de vendas).
+- [x] **P2.3**: Suíte de testes automatizados `test_p2_managerial_layer.py` 100% validada (11 testes no total entre P0, P1 e P2).

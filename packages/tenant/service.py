@@ -55,6 +55,9 @@ class TenantService:
 
     @staticmethod
     async def create_membership(db: AsyncSession, tenant_id: uuid.UUID, user_id: str, role: str) -> TenantMembership:
+        from packages.security.rbac import VALID_ROLES
+        if role not in VALID_ROLES:
+            raise ValueError(f"Invalid role '{role}'. Must be one of: {', '.join(sorted(VALID_ROLES))}")
         membership = TenantMembership(tenant_id=tenant_id, user_id=user_id, role=role)
         db.add(membership)
         await db.flush()
@@ -62,9 +65,24 @@ class TenantService:
 
     @staticmethod
     async def update_membership_role(db: AsyncSession, tenant_id: uuid.UUID, membership_id: uuid.UUID, role: str) -> Optional[TenantMembership]:
+        from packages.security.rbac import VALID_ROLES
+        from sqlalchemy import func
+        if role not in VALID_ROLES:
+            raise ValueError(f"Invalid role '{role}'. Must be one of: {', '.join(sorted(VALID_ROLES))}")
         membership = await TenantService.get_membership(db, tenant_id, membership_id)
         if not membership:
             return None
+        
+        # Prevent demoting the last admin
+        if membership.role == "admin" and role != "admin":
+            stmt = select(func.count(TenantMembership.id)).where(
+                TenantMembership.tenant_id == tenant_id,
+                TenantMembership.role == "admin"
+            )
+            admin_count = (await db.execute(stmt)).scalar() or 0
+            if admin_count <= 1:
+                raise ValueError("Cannot demote the only administrator of this tenant.")
+
         membership.role = role
         await db.flush()
         return membership

@@ -2,6 +2,8 @@ import { Suspense } from "react";
 import { fetchStockTransfersServer, fetchCatalogSkusAndUomsServer } from "@/lib/api-server";
 import { StockTransfersClient } from "./StockTransfersClient";
 
+export const dynamic = "force-dynamic";
+
 export const metadata = {
   title: "Transferências entre Locais & Estoques | KS FoodOps",
   description: "Movimentação e transferências de mercadorias entre Matriz, Filiais, Cozinha Central e Pontos de Venda",

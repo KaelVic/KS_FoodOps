@@ -1,7 +1,7 @@
-from typing import List
+from typing import List, Set
 
-# Simple RBAC model mapping roles to permissions
-# In a real-world scenario, this might be loaded from a database or a config file.
+# Standard RBAC model mapping roles to permissions
+VALID_ROLES: Set[str] = {"admin", "manager", "viewer"}
 
 ROLE_PERMISSIONS = {
     "admin": [
@@ -17,22 +17,57 @@ ROLE_PERMISSIONS = {
         "recipes.edit",
         "recipes.publish",
         "documents.read",
-        "documents.review"
+        "documents.review",
+        "users.manage",
+        "menu.read",
+        "menu.edit",
+        "reports.view",
+        "orders.read",
+        "orders.manage",
+        "production.read",
+        "production.manage",
+        "rfq.read",
+        "rfq.manage",
+        "labor.read",
+        "labor.manage",
+        "financial.read",
+        "financial.manage",
     ],
     "manager": [
         "inventory.read",
         "inventory.count",
+        "inventory.adjust",
         "purchasing.read",
         "purchasing.create",
         "purchasing.receive",
         "recipes.read",
-        "documents.read"
+        "recipes.edit",
+        "documents.read",
+        "documents.review",
+        "menu.read",
+        "menu.edit",
+        "reports.view",
+        "orders.read",
+        "orders.manage",
+        "production.read",
+        "production.manage",
+        "rfq.read",
+        "labor.read",
+        "labor.manage",
+        "financial.read",
     ],
     "viewer": [
         "inventory.read",
         "purchasing.read",
         "recipes.read",
-        "documents.read"
+        "documents.read",
+        "menu.read",
+        "reports.view",
+        "orders.read",
+        "production.read",
+        "rfq.read",
+        "labor.read",
+        "financial.read",
     ]
 }
 

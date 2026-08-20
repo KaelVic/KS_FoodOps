@@ -1,4 +1,4 @@
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from uuid import UUID
 from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +15,14 @@ class SalesService:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def import_sales(self, tenant_id: UUID, pos_system: str, import_reference: str, sales_data: List[Dict[str, Any]]) -> SalesImport:
+    async def import_sales(
+        self,
+        tenant_id: UUID,
+        pos_system: str,
+        import_reference: str,
+        sales_data: List[Dict[str, Any]],
+        location_id: Optional[UUID] = None
+    ) -> SalesImport:
         """
         Idempotently import sales data.
         sales_data format:
@@ -24,6 +31,7 @@ class SalesService:
                 'pos_sale_id': '12345',
                 'sale_date': datetime,
                 'total_amount': '150.00',
+                'location_id': UUID (optional),
                 'lines': [
                     {'pos_product_id': 'P1', 'quantity': '2', 'unit_price': '75.00'}
                 ]
@@ -63,6 +71,7 @@ class SalesService:
                 first_item = items[0]
                 total_val = sum(Decimal(str(i.get("net_amount", 0))) for i in items)
                 sale_date = first_item.get("sale_date")
+                item_loc_id = first_item.get("location_id") or location_id
                 lines = []
                 for i in items:
                     lines.append({
@@ -73,6 +82,7 @@ class SalesService:
                 normalized_sales.append({
                     "pos_sale_id": str(order_id),
                     "sale_date": sale_date,
+                    "location_id": item_loc_id,
                     "total_amount": str(total_val),
                     "lines": lines
                 })
@@ -87,8 +97,11 @@ class SalesService:
                 except Exception:
                     sale_date = datetime.now(timezone.utc)
 
+            sale_loc = sale_dict.get('location_id') or location_id
+
             sale = Sale(
                 tenant_id=tenant_id,
+                location_id=sale_loc,
                 sales_import_id=sales_import.id,
                 pos_sale_id=str(sale_dict['pos_sale_id']),
                 sale_date=sale_date,

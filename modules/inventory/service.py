@@ -40,7 +40,12 @@ class InventoryService:
         if closed_period:
             raise ValueError(f"Cannot post stock movement. Date {target_date} is within a closed accounting period.")
 
-    async def post_goods_receipt(self, receipt_id: UUID, tenant_id: UUID) -> StockMovement:
+    async def post_goods_receipt(
+        self,
+        receipt_id: UUID,
+        tenant_id: UUID,
+        actor_user_id: Optional[UUID] = None
+    ) -> StockMovement:
         """
         Idempotent service to post a Goods Receipt to the inventory ledger.
         """
@@ -84,6 +89,9 @@ class InventoryService:
             status='POSTED',
             reference_id=receipt_id,
             reference_type='GoodsReceipt',
+            actor_user_id=actor_user_id,
+            reason_code='PURCHASE_RECEIPT',
+            notes=f"Receipt of PO items for GoodsReceipt {receipt_id}",
             posted_at=now
         )
         self.session.add(movement)
@@ -161,7 +169,12 @@ class InventoryService:
         
         return movement
 
-    async def close_inventory_session(self, session_id: UUID, tenant_id: UUID) -> InventorySession:
+    async def close_inventory_session(
+        self,
+        session_id: UUID,
+        tenant_id: UUID,
+        actor_user_id: Optional[UUID] = None
+    ) -> InventorySession:
         """
         Idempotent service to close an inventory session and post variances.
         """
@@ -198,6 +211,7 @@ class InventoryService:
         now = datetime.now(timezone.utc)
         await self._guard_accounting_period(tenant_id, now)
         
+        total_variance_count = 0
         for loc_id, sku_id, counted_qty in counts:
             counted_qty = Decimal(counted_qty)
             
@@ -226,6 +240,7 @@ class InventoryService:
             unit_cost = Decimal('0')
             
             if variance_qty != 0:
+                total_variance_count += 1
                 if balance and balance.quantity > 0:
                     unit_cost = balance.total_value / balance.quantity
                 
@@ -239,6 +254,9 @@ class InventoryService:
                     status='POSTED',
                     reference_id=session_id,
                     reference_type='InventorySession',
+                    actor_user_id=actor_user_id,
+                    reason_code='COUNT_VARIANCE',
+                    notes=f"Variance adjustment for inventory session {session_id}",
                     posted_at=now
                 )
                 self.session.add(movement)
@@ -285,6 +303,22 @@ class InventoryService:
             
         inv_session.status = 'CLOSED'
         inv_session.closed_at = now
+
+        # Log Audit
+        from packages.audit.service import AuditService
+        await AuditService.log_action(
+            db=self.session,
+            tenant_id=tenant_id,
+            actor_id=actor_user_id or session_id,
+            action="INVENTORY_SESSION_CLOSED",
+            resource_type="inventory_sessions",
+            resource_id=session_id,
+            changes_payload={
+                "session_id": str(session_id),
+                "variances_posted": total_variance_count,
+                "closed_at": str(now)
+            }
+        )
         
         return inv_session
 
@@ -329,7 +363,16 @@ class InventoryService:
         cmv = opening_value + receipts_value - closing_value
         return cmv
 
-    async def register_loss(self, location_id: UUID, sku_id: UUID, quantity: Decimal, reason: str, actor: str, tenant_id: UUID) -> LossRecord:
+    async def register_loss(
+        self,
+        location_id: UUID,
+        sku_id: UUID,
+        quantity: Decimal,
+        reason: str,
+        actor: str,
+        tenant_id: UUID,
+        actor_user_id: Optional[UUID] = None
+    ) -> LossRecord:
         """
         Record a physical loss / waste, decreasing stock balance and creating ledger entries.
         """
@@ -383,6 +426,9 @@ class InventoryService:
             status='POSTED',
             reference_type='LossRecord',
             reference_id=loss_record_id,
+            actor_user_id=actor_user_id,
+            reason_code=reason,
+            notes=f"Stock loss registered by {actor}. Reason: {reason}",
             posted_at=now
         )
         self.session.add(movement)
@@ -409,6 +455,26 @@ class InventoryService:
         )
         self.session.add(loss_record)
         await self.session.flush()
+
+        # 6. Audit Log
+        from packages.audit.service import AuditService
+        await AuditService.log_action(
+            db=self.session,
+            tenant_id=tenant_id,
+            actor_id=actor_user_id or loss_record_id,
+            action="STOCK_LOSS_RECORDED",
+            resource_type="loss_records",
+            resource_id=loss_record.id,
+            changes_payload={
+                "location_id": str(location_id),
+                "sku_id": str(sku_id),
+                "quantity": float(quantity),
+                "unit_cost": float(unit_cost),
+                "loss_value": float(loss_value),
+                "reason": reason,
+                "actor": actor
+            }
+        )
 
         return loss_record
 
@@ -739,4 +805,213 @@ class InventoryService:
         transfer.received_at = now
         await self.session.flush()
         return transfer
+
+    async def reverse_movement(
+        self,
+        movement_id: UUID,
+        tenant_id: UUID,
+        actor_user_id: Optional[UUID] = None,
+        reason: Optional[str] = None
+    ) -> StockMovement:
+        """
+        Reverses a posted stock movement immutably.
+        Domain Invariant: Posted stock movements and ledger entries are never UPDATE'd or DELETE'd.
+        A reversal creates a NEW StockMovement of type 'REVERSAL' referencing the original movement,
+        with exact opposite ledger entries (quantity = -1 * original_quantity, preserving unit_cost).
+        """
+        now = datetime.now(timezone.utc)
+        await self._guard_accounting_period(tenant_id, now)
+
+        # 1. Lock and validate original movement
+        stmt = select(StockMovement).where(
+            StockMovement.id == movement_id,
+            StockMovement.tenant_id == tenant_id
+        ).with_for_update()
+        original_mov = (await self.session.execute(stmt)).scalar_one_or_none()
+
+        if not original_mov:
+            raise ValueError(f"StockMovement {movement_id} not found.")
+
+        if original_mov.status != 'POSTED':
+            raise ValueError(f"Cannot reverse movement with status '{original_mov.status}'. Only POSTED movements can be reversed.")
+
+        if original_mov.type == 'REVERSAL':
+            raise ValueError("Cannot reverse a movement that is already a reversal.")
+
+        # 2. Fetch original ledger entries
+        stmt_entries = select(StockLedgerEntry).where(
+            StockLedgerEntry.movement_id == movement_id,
+            StockLedgerEntry.tenant_id == tenant_id
+        )
+        original_entries = (await self.session.execute(stmt_entries)).scalars().all()
+
+        if not original_entries:
+            raise ValueError(f"No ledger entries found for StockMovement {movement_id}.")
+
+        # 3. Create reversal StockMovement
+        reversal_movement = StockMovement(
+            tenant_id=tenant_id,
+            location_id=original_mov.location_id,
+            type='REVERSAL',
+            status='POSTED',
+            reference_id=original_mov.id,
+            reference_type='StockMovement',
+            actor_user_id=actor_user_id,
+            reason_code=reason or "MOVEMENT_REVERSAL",
+            notes=f"Reversal of {original_mov.type} movement {original_mov.id}. Reason: {reason or 'Not specified'}",
+            posted_at=now
+        )
+        self.session.add(reversal_movement)
+        await self.session.flush()
+
+        # 4. Create opposite ledger entries and update balance projections
+        for entry in original_entries:
+            rev_qty = Decimal(str(entry.quantity)) * Decimal("-1")
+            
+            # Lock balance projection
+            stmt_bal = select(StockBalanceProjection).where(
+                StockBalanceProjection.sku_id == entry.sku_id,
+                StockBalanceProjection.location_id == original_mov.location_id,
+                StockBalanceProjection.tenant_id == tenant_id
+            ).with_for_update()
+            balance = (await self.session.execute(stmt_bal)).scalar_one_or_none()
+
+            if not balance:
+                balance = StockBalanceProjection(
+                    tenant_id=tenant_id,
+                    location_id=original_mov.location_id,
+                    sku_id=entry.sku_id,
+                    quantity=Decimal('0'),
+                    total_value=Decimal('0')
+                )
+                self.session.add(balance)
+                await self.session.flush()
+                balance = (await self.session.execute(stmt_bal)).scalar_one()
+
+            entry_unit_cost = Decimal(str(entry.unit_cost)) if entry.unit_cost is not None else Decimal('0')
+            rev_value = rev_qty * entry_unit_cost
+
+            balance.quantity += rev_qty
+            balance.total_value += rev_value
+
+            # Create reversed ledger entry
+            rev_ledger_entry = StockLedgerEntry(
+                tenant_id=tenant_id,
+                movement_id=reversal_movement.id,
+                sku_id=entry.sku_id,
+                quantity=rev_qty,
+                unit_cost=entry.unit_cost,
+                conversion_version_id=entry.conversion_version_id,
+                balance_after=balance.quantity
+            )
+            self.session.add(rev_ledger_entry)
+
+        # 5. Update original movement status to REVERSED
+        original_mov.status = 'REVERSED'
+
+        # 6. Audit log
+        from packages.audit.service import AuditService
+        await AuditService.log_action(
+            db=self.session,
+            tenant_id=tenant_id,
+            actor_id=actor_user_id or reversal_movement.id,
+            action="STOCK_MOVEMENT_REVERSED",
+            resource_type="stock_movements",
+            resource_id=reversal_movement.id,
+            changes_payload={
+                "original_movement_id": str(original_mov.id),
+                "original_type": original_mov.type,
+                "reversal_movement_id": str(reversal_movement.id),
+                "reason": reason
+            }
+        )
+
+        return reversal_movement
+
+    async def calculate_theoretical_stock_by_sku(
+        self,
+        tenant_id: UUID,
+        location_id: Optional[UUID] = None,
+        as_of_date: Optional[datetime] = None
+    ) -> List[Dict[str, Any]]:
+        """
+        Calculates theoretical perpetual inventory vs actual physical stock by SKU.
+        Formula:
+          Theoretical Stock = Physical Ledger Net Movements - Theoretical Consumption from Recipe Sales.
+          Variance Quantity = Actual Physical Stock - Theoretical Stock.
+          Variance Value = Variance Quantity * Current Unit Cost.
+        """
+        from modules.inventory.models import TheoreticalConsumption
+        from modules.catalog.models import SKU, UOM, Category
+        from modules.costing.engine import CostingEngine
+
+        # 1. Fetch SKUs
+        stmt_skus = select(SKU, UOM, Category).join(UOM, SKU.base_uom_id == UOM.id).outerjoin(Category, SKU.category_id == Category.id).where(
+            SKU.tenant_id == tenant_id,
+            SKU.is_active == True
+        ).order_by(SKU.name.asc())
+        sku_rows = (await self.session.execute(stmt_skus)).all()
+
+        results = []
+        for sku, uom, cat in sku_rows:
+            # Physical ledger net movements
+            stmt_ledger = select(func.coalesce(func.sum(StockLedgerEntry.quantity), 0)).select_from(StockLedgerEntry).join(
+                StockMovement, StockLedgerEntry.movement_id == StockMovement.id
+            ).where(
+                StockLedgerEntry.tenant_id == tenant_id,
+                StockLedgerEntry.sku_id == sku.id
+            )
+            if location_id:
+                stmt_ledger = stmt_ledger.where(StockMovement.location_id == location_id)
+            if as_of_date:
+                stmt_ledger = stmt_ledger.where(StockMovement.posted_at <= as_of_date)
+
+            ledger_qty = Decimal(str((await self.session.execute(stmt_ledger)).scalar_one()))
+
+            # Theoretical consumption from sales
+            stmt_theo = select(func.coalesce(func.sum(TheoreticalConsumption.quantity), 0)).where(
+                TheoreticalConsumption.tenant_id == tenant_id,
+                TheoreticalConsumption.sku_id == sku.id
+            )
+            if as_of_date:
+                stmt_theo = stmt_theo.where(TheoreticalConsumption.created_at <= as_of_date)
+
+            theo_consumed_qty = Decimal(str((await self.session.execute(stmt_theo)).scalar_one()))
+
+            theoretical_qty = ledger_qty - theo_consumed_qty
+
+            # Actual live balance projection
+            stmt_bal = select(
+                func.coalesce(func.sum(StockBalanceProjection.quantity), 0),
+                func.coalesce(func.sum(StockBalanceProjection.total_value), 0)
+            ).where(
+                StockBalanceProjection.tenant_id == tenant_id,
+                StockBalanceProjection.sku_id == sku.id
+            )
+            if location_id:
+                stmt_bal = stmt_bal.where(StockBalanceProjection.location_id == location_id)
+
+            actual_bal_row = (await self.session.execute(stmt_bal)).one()
+            actual_qty = Decimal(str(actual_bal_row[0]))
+
+            unit_cost = await CostingEngine.get_sku_cost(self.session, tenant_id, sku.id)
+
+            variance_qty = actual_qty - theoretical_qty
+            variance_value = variance_qty * unit_cost
+
+            results.append({
+                "sku_id": str(sku.id),
+                "sku_name": sku.name,
+                "category_name": cat.name if cat else "Uncategorized",
+                "uom_symbol": uom.symbol,
+                "actual_quantity": float(actual_qty),
+                "theoretical_quantity": float(theoretical_qty),
+                "theoretical_consumption": float(theo_consumed_qty),
+                "variance_quantity": float(variance_qty),
+                "unit_cost": float(unit_cost),
+                "variance_value": float(variance_value),
+                "status": "BALANCED" if variance_qty == Decimal("0") else ("EXCESS" if variance_qty > Decimal("0") else "SHORTAGE")
+            })
+
+        return results
 

@@ -9,6 +9,20 @@ export interface InventoryBalance {
   location_name: string
 }
 
+export interface TheoreticalBalance {
+  sku_id: string
+  sku_name: string
+  category_name: string
+  uom_symbol: string
+  actual_quantity: number
+  theoretical_quantity: number
+  theoretical_consumption: number
+  variance_quantity: number
+  unit_cost: number
+  variance_value: number
+  status: "BALANCED" | "EXCESS" | "SHORTAGE"
+}
+
 export interface FetchInventoryBalancesParams {
   location_id?: string
 }

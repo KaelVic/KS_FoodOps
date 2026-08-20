@@ -10,10 +10,13 @@ class StockMovement(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id = Column(UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True)
     location_id = Column(UUID(as_uuid=True), ForeignKey("locations.id", ondelete="RESTRICT"), nullable=False)
-    type = Column(String(50), nullable=False) # e.g. 'RECEIPT', 'ADJUSTMENT', 'TRANSFER', 'REVERSAL'
+    type = Column(String(50), nullable=False) # e.g. 'RECEIPT', 'ADJUSTMENT', 'TRANSFER', 'REVERSAL', 'PRODUCTION_CONSUMPTION', 'PRODUCTION_RECEIPT'
     status = Column(String(50), nullable=False) # 'DRAFT', 'POSTED', 'REVERSED'
-    reference_id = Column(UUID(as_uuid=True), nullable=True) # ID of the triggering entity (e.g. GoodsReceipt)
+    reference_id = Column(UUID(as_uuid=True), nullable=True) # ID of the triggering entity (e.g. GoodsReceipt, original StockMovement for reversal)
     reference_type = Column(String(100), nullable=True) # e.g. 'GoodsReceipt', 'StockMovement' (for reversal)
+    actor_user_id = Column(UUID(as_uuid=True), nullable=True, index=True) # ID of AppUser who initiated or posted the movement
+    reason_code = Column(String(100), nullable=True) # Standardized reason code (e.g. 'SPOILAGE', 'COUNT_VARIANCE', 'MANUAL_CORRECTION')
+    notes = Column(String(500), nullable=True) # Free-form operational notes
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     posted_at = Column(DateTime(timezone=True), nullable=True)
 

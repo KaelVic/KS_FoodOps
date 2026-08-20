@@ -2,6 +2,8 @@ import { Suspense } from "react";
 import { fetchProductionOrdersServer, fetchRecipesServer, fetchCatalogSkusAndUomsServer } from "@/lib/api-server";
 import { ProductionOrdersClient } from "./ProductionOrdersClient";
 
+export const dynamic = "force-dynamic";
+
 export const metadata = {
   title: "Ordens de Produção & Commissary | KS FoodOps",
   description: "Gestão de Ordens de Produção (OPs), Bateladas de Semi-Acabados e Rendimentos",

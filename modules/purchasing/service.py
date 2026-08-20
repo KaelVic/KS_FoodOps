@@ -19,7 +19,13 @@ class PurchasingService:
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    async def receive_purchase_order(self, po_id: uuid.UUID, tenant_id: uuid.UUID, receipt_lines_data: List[Dict]) -> GoodsReceipt:
+    async def receive_purchase_order(
+        self,
+        po_id: uuid.UUID,
+        tenant_id: uuid.UUID,
+        receipt_lines_data: List[Dict],
+        actor_user_id: Optional[uuid.UUID] = None
+    ) -> GoodsReceipt:
         """
         Receives a Purchase Order, generating a Goods Receipt and updating PO status.
         receipt_lines_data format: [{'po_line_id': UUID, 'sku_id': UUID, 'quantity': Decimal, 'unit_price': Decimal}]
@@ -76,15 +82,9 @@ class PurchasingService:
         await self.session.flush()
         
         # 4. Check if fully received
-        # Sum of ordered
         stmt = select(func.sum(PurchaseOrderLine.ordered_quantity)).where(PurchaseOrderLine.purchase_order_id == po_id)
         total_ordered = (await self.session.execute(stmt)).scalar_one() or Decimal('0')
         
-        # Sum of received
-        stmt = select(func.sum(GoodsReceiptLine.quantity)).where(
-            GoodsReceiptLine.receipt_id == receipt.id, # wait, we need all receipts for this PO
-        )
-        # Actually, sum across ALL receipts for this PO:
         stmt = select(func.sum(GoodsReceiptLine.quantity)).join(
             GoodsReceipt, GoodsReceipt.id == GoodsReceiptLine.receipt_id
         ).where(
@@ -101,10 +101,27 @@ class PurchasingService:
             
         # 5. Post the Goods Receipt using InventoryService to affect stock
         inv_service = InventoryService(self.session)
-        await inv_service.post_goods_receipt(receipt.id, tenant_id)
+        await inv_service.post_goods_receipt(receipt.id, tenant_id, actor_user_id=actor_user_id)
         
         # Call reconciliation logic for the lines we just added
         await self._evaluate_reconciliations(po_id, tenant_id)
+
+        # 6. Log audit
+        from packages.audit.service import AuditService
+        await AuditService.log_action(
+            db=self.session,
+            tenant_id=tenant_id,
+            actor_id=actor_user_id or receipt.id,
+            action="PURCHASE_ORDER_RECEIVED",
+            resource_type="purchase_orders",
+            resource_id=po.id,
+            changes_payload={
+                "po_id": str(po_id),
+                "receipt_id": str(receipt.id),
+                "new_status": po.status,
+                "lines_count": len(receipt_lines_data)
+            }
+        )
         
         return receipt
 

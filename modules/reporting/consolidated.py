@@ -26,6 +26,8 @@ class ConsolidatedReportService:
             Sale.sale_date >= start_date,
             Sale.sale_date <= end_date
         )
+        if location_id:
+            stmt_rev = stmt_rev.where((Sale.location_id == location_id) | (Sale.location_id.is_(None)))
         total_revenue = Decimal((await self.session.execute(stmt_rev)).scalar_one())
 
         # 2. Theoretical Consumption

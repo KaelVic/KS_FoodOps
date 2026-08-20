@@ -53,3 +53,24 @@ export interface OperationalAlert {
   is_resolved: boolean;
   created_at: string;
 }
+
+export interface DishCMVDrift {
+  recipe_id: string;
+  recipe_name: string;
+  version_number: number;
+  current_portion_cost: number;
+  target_portion_cost: number;
+  drift_percentage: number;
+  status: "NORMAL" | "WARNING" | "CRITICAL";
+}
+
+export interface StockoutRisk {
+  sku_id: string;
+  sku_name: string;
+  uom_symbol: string;
+  on_hand: number;
+  daily_burn_rate: number;
+  days_remaining: number;
+  lead_time_days: number;
+  risk_level: "SAFE" | "WARNING" | "CRITICAL";
+}

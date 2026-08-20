@@ -68,6 +68,76 @@ export async function fetchInventoryBalancesServer(params: FetchInventoryBalance
   }
 }
 
+export async function fetchTheoreticalBalancesServer(locationId?: string): Promise<any[]> {
+  try {
+    const headers = await getAuthHeaders()
+    const searchParams = new URLSearchParams()
+    if (locationId) {
+      searchParams.set("location_id", locationId)
+    }
+
+    const response = await fetch(`${API_URL}/inventory/theoretical-balances?${searchParams.toString()}`, {
+      method: "GET",
+      headers,
+      cache: "no-store",
+    })
+
+    if (!response.ok) {
+      return []
+    }
+
+    return await response.json()
+  } catch (error) {
+    console.error("Failed to fetch theoretical balances:", error)
+    return []
+  }
+}
+
+export async function fetchDishCMVDriftServer(threshold: number = 5.0): Promise<any[]> {
+  try {
+    const headers = await getAuthHeaders()
+    const response = await fetch(`${API_URL}/intelligence/dishes/cmv-drift?threshold=${threshold}`, {
+      method: "GET",
+      headers,
+      cache: "no-store",
+    })
+
+    if (!response.ok) {
+      return []
+    }
+
+    return await response.json()
+  } catch (error) {
+    console.error("Failed to fetch dish CMV drift:", error)
+    return []
+  }
+}
+
+export async function fetchStockoutRisksServer(locationId?: string): Promise<any[]> {
+  try {
+    const headers = await getAuthHeaders()
+    const searchParams = new URLSearchParams()
+    if (locationId) {
+      searchParams.set("location_id", locationId)
+    }
+
+    const response = await fetch(`${API_URL}/intelligence/stockout-risks?${searchParams.toString()}`, {
+      method: "GET",
+      headers,
+      cache: "no-store",
+    })
+
+    if (!response.ok) {
+      return []
+    }
+
+    return await response.json()
+  } catch (error) {
+    console.error("Failed to fetch stockout risks:", error)
+    return []
+  }
+}
+
 export async function fetchExtractionsServer(): Promise<DocumentExtractionItem[]> {
   try {
     const headers = await getAuthHeaders()

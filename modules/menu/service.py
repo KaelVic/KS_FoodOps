@@ -52,7 +52,9 @@ class MenuService:
     # --- Menu Items ---
     @staticmethod
     async def get_recipe_unit_cost(session: AsyncSession, tenant_id: uuid.UUID, recipe_id: uuid.UUID) -> Decimal:
-        """Calculates dynamic cost per portion of a recipe based on its latest published version."""
+        """Calculates dynamic cost per portion of a recipe based on its latest published version and unified CostingEngine."""
+        from modules.costing.engine import CostingEngine
+
         v_stmt = select(RecipeVersion).where(
             RecipeVersion.recipe_id == recipe_id,
             RecipeVersion.tenant_id == tenant_id,
@@ -78,13 +80,8 @@ class MenuService:
 
         total_recipe_cost = Decimal("0")
         for ing in ingredients:
-            # Find latest SKU cost from ledger or fallback
-            entry_stmt = select(StockLedgerEntry).where(
-                StockLedgerEntry.sku_id == ing.sku_id,
-                StockLedgerEntry.tenant_id == tenant_id
-            ).order_by(StockLedgerEntry.created_at.desc()).limit(1)
-            entry = (await session.execute(entry_stmt)).scalar_one_or_none()
-            unit_cost = entry.unit_cost if entry and entry.unit_cost else Decimal("10.00")
+            # Unified Costing Engine lookup (no arbitrary fallbacks)
+            unit_cost = await CostingEngine.get_sku_cost(session, tenant_id, ing.sku_id)
             
             # Loss adjustment
             loss_mult = Decimal("1") + (ing.loss_percentage / Decimal("100"))

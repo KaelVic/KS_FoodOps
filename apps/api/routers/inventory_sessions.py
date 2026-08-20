@@ -10,7 +10,8 @@ from decimal import Decimal
 
 from modules.inventory.models import InventorySession, InventorySessionLocation, InventoryCountLine, InventoryCloseResult
 from modules.inventory.service import InventoryService
-from packages.security.dependencies import get_secure_session, get_tenant_id_from_header
+from packages.security.dependencies import get_secure_session, get_tenant_id_from_header, require_permission, get_current_user
+from packages.security.auth import TokenPayload
 
 router = APIRouter(tags=["Inventory Sessions"], prefix="/inventory/sessions")
 
@@ -50,6 +51,7 @@ class CloseResultResponse(BaseModel):
 @router.post("", response_model=SessionResponse, status_code=status.HTTP_201_CREATED)
 async def create_inventory_session(
     payload: CreateSessionPayload,
+    _perm: bool = Depends(require_permission("inventory.count")),
     db: AsyncSession = Depends(get_secure_session),
     tenant_id: UUID = Depends(get_tenant_id_from_header)
 ):
@@ -71,6 +73,7 @@ async def create_inventory_session(
 
 @router.get("", response_model=List[SessionResponse])
 async def list_sessions(
+    _perm: bool = Depends(require_permission("inventory.read")),
     db: AsyncSession = Depends(get_secure_session)
 ):
     stmt = select(InventorySession).order_by(InventorySession.created_at.desc())
@@ -80,6 +83,7 @@ async def list_sessions(
 @router.get("/{session_id}", response_model=SessionDetailResponse)
 async def get_session(
     session_id: UUID,
+    _perm: bool = Depends(require_permission("inventory.read")),
     db: AsyncSession = Depends(get_secure_session)
 ):
     stmt = select(InventorySession).where(InventorySession.id == session_id)
@@ -103,6 +107,7 @@ async def get_session(
 async def add_count_line(
     session_id: UUID,
     payload: CountLinePayload,
+    _perm: bool = Depends(require_permission("inventory.count")),
     db: AsyncSession = Depends(get_secure_session),
     tenant_id: UUID = Depends(get_tenant_id_from_header)
 ):
@@ -129,20 +134,37 @@ async def add_count_line(
 @router.post("/{session_id}/close", response_model=SessionResponse)
 async def close_session(
     session_id: UUID,
+    _perm: bool = Depends(require_permission("inventory.close")),
+    user: TokenPayload = Depends(get_current_user),
     db: AsyncSession = Depends(get_secure_session),
     tenant_id: UUID = Depends(get_tenant_id_from_header)
 ):
     service = InventoryService(db)
+    actor_user_id = None
     try:
-        session = await service.close_inventory_session(session_id, tenant_id)
+        actor_user_id = UUID(user.sub)
+    except Exception:
+        pass
+
+    try:
+        session = await service.close_inventory_session(
+            session_id=session_id,
+            tenant_id=tenant_id,
+            actor_user_id=actor_user_id
+        )
         await db.commit()
         return session
     except ValueError as e:
+        await db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/{session_id}/results", response_model=List[CloseResultResponse])
 async def get_close_results(
     session_id: UUID,
+    _perm: bool = Depends(require_permission("inventory.read")),
     db: AsyncSession = Depends(get_secure_session)
 ):
     stmt = select(InventoryCloseResult).where(InventoryCloseResult.session_id == session_id)

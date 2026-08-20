@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from modules.inventory.models import StockBalanceProjection
 from modules.catalog.models import SKU, Category, UOM
 from packages.tenant.models import Location
-from packages.security.dependencies import get_secure_session
+from packages.security.dependencies import get_secure_session, require_permission
 
 router = APIRouter(tags=["Inventory"])
 
@@ -31,6 +31,7 @@ class StockBalanceResponse(BaseModel):
 @router.get("/balances", response_model=List[StockBalanceResponse])
 async def list_stock_balances(
     location_id: Optional[UUID] = Query(None, description="Filter by specific location"),
+    _perm: bool = Depends(require_permission("inventory.read")),
     db: AsyncSession = Depends(get_secure_session)
 ) -> List[StockBalanceResponse]:
     """
@@ -83,7 +84,8 @@ from datetime import datetime
 from fastapi import HTTPException, status
 from modules.inventory.models import LossRecord, StockMovement
 from modules.inventory.service import InventoryService
-from packages.security.dependencies import get_tenant_id_from_header
+from packages.security.dependencies import get_tenant_id_from_header, get_current_user
+from packages.security.auth import TokenPayload
 
 
 class RegisterLossPayload(BaseModel):
@@ -107,13 +109,41 @@ class LossResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ReverseMovementPayload(BaseModel):
+    reason: str = Field(..., example="Input error / Duplicate entry")
+
+
+class MovementResponse(BaseModel):
+    id: UUID
+    tenant_id: UUID
+    location_id: UUID
+    type: str
+    status: str
+    reference_id: Optional[UUID] = None
+    reference_type: Optional[str] = None
+    actor_user_id: Optional[UUID] = None
+    reason_code: Optional[str] = None
+    notes: Optional[str] = None
+    posted_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 @router.post("/losses", response_model=LossResponse, status_code=status.HTTP_201_CREATED)
 async def register_loss_endpoint(
     payload: RegisterLossPayload,
+    _perm: bool = Depends(require_permission("inventory.adjust")),
+    user: TokenPayload = Depends(get_current_user),
     db: AsyncSession = Depends(get_secure_session),
     tenant_id: UUID = Depends(get_tenant_id_from_header)
 ):
     service = InventoryService(db)
+    actor_user_id = None
+    try:
+        actor_user_id = UUID(user.sub)
+    except Exception:
+        pass
+
     try:
         loss = await service.register_loss(
             location_id=payload.location_id,
@@ -121,7 +151,8 @@ async def register_loss_endpoint(
             quantity=payload.quantity,
             reason=payload.reason,
             actor=payload.actor or "Operator",
-            tenant_id=tenant_id
+            tenant_id=tenant_id,
+            actor_user_id=actor_user_id
         )
         await db.commit()
 
@@ -147,8 +178,46 @@ async def register_loss_endpoint(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.post("/movements/{movement_id}/reverse", response_model=MovementResponse, status_code=status.HTTP_201_CREATED)
+async def reverse_movement_endpoint(
+    movement_id: UUID,
+    payload: ReverseMovementPayload,
+    _perm: bool = Depends(require_permission("inventory.adjust")),
+    user: TokenPayload = Depends(get_current_user),
+    db: AsyncSession = Depends(get_secure_session),
+    tenant_id: UUID = Depends(get_tenant_id_from_header)
+):
+    """
+    Reverses an existing POSTED stock movement immutably.
+    Creates a counter-movement of type REVERSAL with inverse ledger entries.
+    """
+    service = InventoryService(db)
+    actor_user_id = None
+    try:
+        actor_user_id = UUID(user.sub)
+    except Exception:
+        pass
+
+    try:
+        reversal = await service.reverse_movement(
+            movement_id=movement_id,
+            tenant_id=tenant_id,
+            actor_user_id=actor_user_id,
+            reason=payload.reason
+        )
+        await db.commit()
+        return reversal
+    except ValueError as e:
+        await db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.get("/losses", response_model=List[LossResponse])
 async def list_losses_endpoint(
+    _perm: bool = Depends(require_permission("inventory.read")),
     db: AsyncSession = Depends(get_secure_session)
 ):
     from modules.inventory.models import StockLedgerEntry
@@ -210,6 +279,7 @@ class ReceiveStockTransferPayload(BaseModel):
 @router.get("/transfers")
 async def list_stock_transfers(
     status: Optional[str] = Query(None),
+    _perm: bool = Depends(require_permission("inventory.read")),
     tenant_id: UUID = Depends(get_tenant_id_from_header),
     session: AsyncSession = Depends(get_secure_session),
 ):
@@ -220,6 +290,7 @@ async def list_stock_transfers(
 @router.post("/transfers", status_code=status.HTTP_201_CREATED)
 async def create_stock_transfer(
     payload: CreateStockTransferPayload,
+    _perm: bool = Depends(require_permission("inventory.adjust")),
     tenant_id: UUID = Depends(get_tenant_id_from_header),
     session: AsyncSession = Depends(get_secure_session),
 ):
@@ -243,6 +314,7 @@ async def create_stock_transfer(
 @router.get("/transfers/{transfer_id}")
 async def get_stock_transfer_detail(
     transfer_id: UUID,
+    _perm: bool = Depends(require_permission("inventory.read")),
     tenant_id: UUID = Depends(get_tenant_id_from_header),
     session: AsyncSession = Depends(get_secure_session),
 ):
@@ -256,6 +328,7 @@ async def get_stock_transfer_detail(
 @router.post("/transfers/{transfer_id}/dispatch")
 async def dispatch_stock_transfer(
     transfer_id: UUID,
+    _perm: bool = Depends(require_permission("inventory.adjust")),
     tenant_id: UUID = Depends(get_tenant_id_from_header),
     session: AsyncSession = Depends(get_secure_session),
 ):
@@ -270,10 +343,39 @@ async def dispatch_stock_transfer(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+class TheoreticalBalanceResponse(BaseModel):
+    sku_id: str
+    sku_name: str
+    category_name: str
+    uom_symbol: str
+    actual_quantity: float
+    theoretical_quantity: float
+    theoretical_consumption: float
+    variance_quantity: float
+    unit_cost: float
+    variance_value: float
+    status: str
+
+
+@router.get("/theoretical-balances", response_model=List[TheoreticalBalanceResponse])
+async def list_theoretical_balances(
+    location_id: Optional[UUID] = Query(None, description="Filter by specific location"),
+    _perm: bool = Depends(require_permission("inventory.read")),
+    session: AsyncSession = Depends(get_secure_session),
+    tenant_id: UUID = Depends(get_tenant_id_from_header)
+):
+    """
+    Computes perpetual theoretical stock vs real ledger stock and operational variances for all SKUs.
+    """
+    service = InventoryService(session)
+    return await service.calculate_theoretical_stock_by_sku(tenant_id=tenant_id, location_id=location_id)
+
+
 @router.post("/transfers/{transfer_id}/receive")
 async def receive_stock_transfer(
     transfer_id: UUID,
     payload: Optional[ReceiveStockTransferPayload] = None,
+    _perm: bool = Depends(require_permission("inventory.adjust")),
     tenant_id: UUID = Depends(get_tenant_id_from_header),
     session: AsyncSession = Depends(get_secure_session),
 ):
